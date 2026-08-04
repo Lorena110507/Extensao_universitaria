@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#5c2d0e">
+  <title>Ateliê Haiti{% if titulo_pagina %} · {{ titulo_pagina }}{% endif %}</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body>
+
+  <header style="background:linear-gradient(135deg,var(--primary-dk) 0%,var(--primary) 100%);
+                 color:#fef9f0; padding:16px; position:sticky; top:0; z-index:40;
+                 box-shadow:0 3px 12px rgba(92,45,14,.3);">
+    <div style="max-width:520px; margin:0 auto; display:flex; align-items:center; gap:12px;">
+      {% if request.path != '/' %}
+      <a href="{{ url_for('home') }}" style="color:#fde9c2; font-size:22px; font-weight:700; text-decoration:none; line-height:1;">←</a>
+      {% endif %}
+      <div style="flex:1; min-width:0;">
+        <p class="font-serif" style="font-size:20px; font-weight:700; line-height:1.2;">{{ titulo_pagina or "✂️ Ateliê Haiti" }}</p>
+        {% if subtitulo %}
+        <p class="font-crimson" style="font-size:13px; color:#fde9c2; font-style:italic;">{{ subtitulo }}</p>
+        {% endif %}
+      </div>
+      <button id="btn-menu" class="btn-menu" aria-label="Abrir menu" type="button">☰</button>
+    </div>
+  </header>
+
+  <div id="drawer-overlay"></div>
+  <aside id="drawer">
+    <div class="drawer-header">
+      <p class="font-serif" style="font-size:20px; font-weight:700; letter-spacing:.5px;">✂️ Ateliê Haiti</p>
+      <p class="font-crimson" style="font-size:13px; color:#fde9c2; font-style:italic; margin-top:2px;">Gestão Artesanal</p>
+    </div>
+    <nav>
+      <a class="drawer-link {{ 'active' if request.path == '/' }}" href="{{ url_for('home') }}"><span class="ic">🏠</span> Início</a>
+      <a class="drawer-link {{ 'active' if request.path == '/estoque' }}" href="{{ url_for('estoque') }}"><span class="ic">📦</span> Estoque</a>
+      <a class="drawer-link {{ 'active' if request.path == '/adicionar' }}" href="{{ url_for('adicionar') }}"><span class="ic">➕</span> Adicionar Material</a>
+      <a class="drawer-link {{ 'active' if request.path == '/baixa' }}" href="{{ url_for('baixa') }}"><span class="ic">✂️</span> Dar Baixa</a>
+      <a class="drawer-link {{ 'active' if request.path == '/produtos' }}" href="{{ url_for('em_construcao', pagina='produtos') }}"><span class="ic">👜</span> Produtos &amp; Receitas</a>
+      <a class="drawer-link {{ 'active' if request.path == '/pedidos' }}" href="{{ url_for('em_construcao', pagina='pedidos') }}"><span class="ic">🧾</span> Pedidos dos Clientes</a>
+      <a class="drawer-link {{ 'active' if request.path == '/sobras' }}" href="{{ url_for('em_construcao', pagina='sobras') }}"><span class="ic">♻️</span> Sobras e Reaproveitamento</a>
+      <a class="drawer-link {{ 'active' if request.path == '/financeiro' }}" href="{{ url_for('em_construcao', pagina='financeiro') }}"><span class="ic">💰</span> Financeiro</a>
+      <a class="drawer-link {{ 'active' if request.path == '/alertas' }}" href="{{ url_for('em_construcao', pagina='alertas') }}"><span class="ic">📊</span> Alertas e Relatórios</a>
+    </nav>
+    <div class="drawer-footer">
+      <div class="ornament">✦ ✦ ✦</div>
+      <p class="font-crimson" style="font-size:12px; color:var(--muted); font-style:italic;">Conectados pela Comunidade · Favela do Haiti, SP</p>
+    </div>
+  </aside>
+
+  {% with mensagens = get_flashed_messages() %}
+  {% if mensagens %}
+  <div id="flash-bar">
+    {% for msg in mensagens %}
+    <div class="flash-msg">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  <script>setTimeout(() => { const el = document.getElementById('flash-bar'); if (el) el.remove(); }, 3000);</script>
+  {% endif %}
+  {% endwith %}
+
+  <main style="max-width:520px; margin:0 auto; padding:16px 16px 60px;">
+    {% block conteudo %}{% endblock %}
+  </main>
+
+  <script>
+    const drawer  = document.getElementById('drawer');
+    const overlay = document.getElementById('drawer-overlay');
+    const btnMenu = document.getElementById('btn-menu');
+
+    function abrirMenu() { drawer.classList.add('open'); overlay.classList.add('open'); }
+    function fecharMenu() { drawer.classList.remove('open'); overlay.classList.remove('open'); }
+
+    btnMenu.addEventListener('click', abrirMenu);
+    overlay.addEventListener('click', fecharMenu);
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% set subtitulo = "Gestão Artesanal" %}
+{% block conteudo %}
+
+<div class="card" style="padding:20px; text-align:center; margin-bottom:16px;">
+  <p class="font-serif" style="font-size:36px; font-weight:700; color:var(--primary);">{{ total_itens }}</p>
+  <p class="font-crimson" style="color:var(--muted); font-style:italic;">materiais no estoque</p>
+</div>
+
+{% if baixo_estoque %}
+<div class="card" style="padding:16px; margin-bottom:16px; border:1.5px solid var(--danger);">
+  <p style="color:var(--danger); font-weight:700; margin-bottom:8px;">⚠️ Estoque baixo</p>
+  {% for m in baixo_estoque %}
+  <p class="font-crimson" style="font-size:14px; margin-bottom:4px;">{{ m.emoji }} {{ m.nome }} — {{ m.quantidade }} {{ m.unidade }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+<a href="{{ url_for('estoque') }}" class="btn-primary" style="margin-bottom:12px;">📦 Ver Estoque</a>
+<a href="{{ url_for('adicionar') }}" class="btn-secondary" style="margin-bottom:12px;">➕ Adicionar Material</a>
+<a href="{{ url_for('baixa') }}" class="btn-secondary">✂️ Dar Baixa</a>
+
+<div class="ornament" style="margin-top:28px;">✦ ✦ ✦</div>
+<p class="font-crimson" style="text-align:center; color:var(--muted); font-style:italic; font-size:13px; margin-top:6px;">
+  Conectados pela Comunidade · Favela do Haiti, SP
+</p>
+{% endblock %}
