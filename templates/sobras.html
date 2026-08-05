@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Sobras e Reaproveitamento" %}
+{% set subtitulo = sobras|length ~ " registro(s)" %}
+{% block conteudo %}
+
+<a href="{{ url_for('sobra_novo') }}" class="btn-primary" style="margin-bottom:16px;">➕ Registrar Sobra</a>
+
+{% if not sobras %}
+<div class="card" style="padding:30px; text-align:center;">
+  <p style="font-size:36px;">♻️</p>
+  <p class="font-crimson" style="color:var(--muted); font-style:italic; margin-top:8px;">
+    Nenhuma sobra registrada ainda. Retalhos e pontas de material podem ser guardados aqui para reaproveitar depois.
+  </p>
+</div>
+{% endif %}
+
+{% for s in sobras %}
+<div class="card card-ornament" style="margin-bottom:14px; overflow:hidden;">
+  <div style="padding:14px 16px;">
+    <div style="display:flex; gap:14px; align-items:flex-start;">
+      <div style="width:52px; height:52px; border-radius:12px; background:var(--accent-lt);
+                  border:1.5px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <span style="font-size:24px;">♻️</span>
+      </div>
+      <div style="flex:1; min-width:0;">
+        <p class="font-serif" style="font-size:16px; font-weight:700; color:var(--text); line-height:1.2;">{{ s.descricao }}</p>
+        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:13px; margin-top:3px;">
+          {{ s.quantidade }} {{ s.unidade }} · registrada em {{ s.data }}
+        </p>
+      </div>
+      <span class="tag {{ status_badge.get(s.status,'') }}" style="flex-shrink:0;">{{ s.status }}</span>
+    </div>
+
+    {% if s.status == "Disponível" %}
+    <div style="display:flex; gap:8px; margin-top:12px;">
+      <form method="post" action="{{ url_for('sobra_reaproveitar', sobra_id=s.id) }}" style="flex:1;">
+        <button class="btn-secondary" style="width:100%; font-size:14px !important;">♻️ Reaproveitar</button>
+      </form>
+      <form method="post" action="{{ url_for('sobra_descartar', sobra_id=s.id) }}" style="flex:1;" onsubmit="return confirm('Marcar como descartada?')">
+        <button class="btn-ghost" style="width:100%; font-size:14px !important;">🗑️ Descartar</button>
+      </form>
+    </div>
+    {% else %}
+    <div style="display:flex; margin-top:12px;">
+      <form method="post" action="{{ url_for('sobra_excluir', sobra_id=s.id) }}" style="flex:1;" onsubmit="return confirm('Remover este registro?')">
+        <button class="btn-ghost" style="width:100%; font-size:14px !important;">Remover registro</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

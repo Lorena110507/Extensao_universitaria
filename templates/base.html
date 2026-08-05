@@ -41,11 +41,11 @@
       <a class="drawer-link {{ 'active' if request.path == '/estoque' }}" href="{{ url_for('estoque') }}"><span class="ic">📦</span> Estoque</a>
       <a class="drawer-link {{ 'active' if request.path == '/adicionar' }}" href="{{ url_for('adicionar') }}"><span class="ic">➕</span> Adicionar Material</a>
       <a class="drawer-link {{ 'active' if request.path == '/baixa' }}" href="{{ url_for('baixa') }}"><span class="ic">✂️</span> Dar Baixa</a>
-      <a class="drawer-link {{ 'active' if request.path == '/produtos' }}" href="{{ url_for('em_construcao', pagina='produtos') }}"><span class="ic">👜</span> Produtos &amp; Receitas</a>
-      <a class="drawer-link {{ 'active' if request.path == '/pedidos' }}" href="{{ url_for('em_construcao', pagina='pedidos') }}"><span class="ic">🧾</span> Pedidos dos Clientes</a>
-      <a class="drawer-link {{ 'active' if request.path == '/sobras' }}" href="{{ url_for('em_construcao', pagina='sobras') }}"><span class="ic">♻️</span> Sobras e Reaproveitamento</a>
-      <a class="drawer-link {{ 'active' if request.path == '/financeiro' }}" href="{{ url_for('em_construcao', pagina='financeiro') }}"><span class="ic">💰</span> Financeiro</a>
-      <a class="drawer-link {{ 'active' if request.path == '/alertas' }}" href="{{ url_for('em_construcao', pagina='alertas') }}"><span class="ic">📊</span> Alertas e Relatórios</a>
+      <a class="drawer-link {{ 'active' if request.path.startswith('/produtos') }}" href="{{ url_for('produtos') }}"><span class="ic">👜</span> Produtos &amp; Receitas</a>
+      <a class="drawer-link {{ 'active' if request.path.startswith('/pedidos') }}" href="{{ url_for('pedidos') }}"><span class="ic">🧾</span> Pedidos dos Clientes</a>
+      <a class="drawer-link {{ 'active' if request.path.startswith('/sobras') }}" href="{{ url_for('sobras') }}"><span class="ic">♻️</span> Sobras e Reaproveitamento</a>
+      <a class="drawer-link {{ 'active' if request.path.startswith('/financeiro') }}" href="{{ url_for('financeiro') }}"><span class="ic">💰</span> Financeiro</a>
+      <a class="drawer-link {{ 'active' if request.path.startswith('/alertas') }}" href="{{ url_for('alertas') }}"><span class="ic">📊</span> Alertas e Relatórios</a>
     </nav>
     <div class="drawer-footer">
       <div class="ornament">✦ ✦ ✦</div>

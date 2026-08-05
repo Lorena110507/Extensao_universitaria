@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Registrar Sobra" %}
+{% block conteudo %}
+
+<form method="post">
+
+  <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
+
+  <div style="margin-bottom:18px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+      🏷️ MATERIAL DE ORIGEM <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+    </label>
+    <select name="material_id" id="sel-material" onchange="atualizarUnidade()" class="input-vintage" style="font-family:'Crimson Text',serif; font-size:16px !important;">
+      <option value="">— Sobra avulsa / sem material vinculado —</option>
+      {% for m in materiais %}
+      <option value="{{ m.id }}" data-unidade="{{ m.unidade }}">{{ m.emoji }} {{ m.nome }}</option>
+      {% endfor %}
+    </select>
+    <p class="font-crimson" style="font-size:12px; color:var(--muted); font-style:italic; margin-top:4px;">
+      Vinculando um material, ao reaproveitar a sobra ela volta automaticamente para o estoque.
+    </p>
+  </div>
+
+  <div style="margin-bottom:18px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+      📝 DESCRIÇÃO <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+    </label>
+    <input name="descricao" placeholder="Ex: Retalho de courino preto 20x30cm" class="input-vintage">
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px;">
+    <div>
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">📏 QUANTIDADE</label>
+      <input name="quantidade" type="number" min="0.01" step="0.01" placeholder="Ex: 0.3" required class="input-vintage" style="text-align:center; font-size:20px !important; font-weight:700;">
+    </div>
+    <div>
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">📐 UNIDADE</label>
+      <select name="unidade" id="sel-unidade" class="input-vintage">
+        {% for u in ["unidades","metros","rolos","kg","gramas","pares","pacotes"] %}<option>{{ u }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="ornament" style="margin-bottom:20px;">· · ·</div>
+
+  <button type="submit" class="btn-primary" style="font-size:18px !important; padding:16px;">
+    ✅ Registrar Sobra
+  </button>
+
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function atualizarUnidade() {
+  const opt = document.getElementById('sel-material').selectedOptions[0];
+  if (opt && opt.dataset.unidade) {
+    document.getElementById('sel-unidade').value = opt.dataset.unidade;
+  }
+}
+</script>
+{% endblock %}

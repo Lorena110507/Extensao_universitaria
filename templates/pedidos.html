@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Pedidos dos Clientes" %}
+{% set subtitulo = pedidos|length ~ " pedido(s)" %}
+{% block conteudo %}
+
+<a href="{{ url_for('pedido_novo') }}" class="btn-primary" style="margin-bottom:16px;">➕ Novo Pedido</a>
+
+{% if not pedidos %}
+<div class="card" style="padding:30px; text-align:center;">
+  <p style="font-size:36px;">🧾</p>
+  <p class="font-crimson" style="color:var(--muted); font-style:italic; margin-top:8px;">
+    Nenhum pedido registrado ainda.
+  </p>
+</div>
+{% endif %}
+
+{% for p in pedidos %}
+<div class="card card-ornament" style="margin-bottom:14px; overflow:hidden;">
+  <div style="padding:14px 16px;">
+    <div style="display:flex; gap:14px; align-items:flex-start;">
+      <div style="width:56px; height:56px; border-radius:12px; background:var(--accent-lt);
+                  border:1.5px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <span style="font-size:26px;">{{ p.produto_emoji }}</span>
+      </div>
+      <div style="flex:1; min-width:0;">
+        <p class="font-serif" style="font-size:17px; font-weight:700; color:var(--text); line-height:1.2;">{{ p.cliente }}</p>
+        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:13px; margin-top:3px;">
+          {{ p.quantidade }}x {{ p.produto_nome }} · {{ p.data_pedido }}
+        </p>
+        {% if p.observacoes %}
+        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:12px; margin-top:3px;">"{{ p.observacoes }}"</p>
+        {% endif %}
+      </div>
+      <div style="text-align:right; flex-shrink:0;">
+        <p style="font-size:20px; font-weight:800; color:var(--primary); line-height:1;">R$ {{ "%.2f"|format(p.valor_total) }}</p>
+        <span class="tag {{ status_badge.get(p.status,'') }}" style="margin-top:4px; display:inline-block;">{{ p.status }}</span>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:8px; margin-top:12px; align-items:center;">
+      <form method="post" action="{{ url_for('pedido_status', pedido_id=p.id) }}" style="flex:1; display:flex; gap:8px;">
+        <select name="status" class="input-vintage" style="flex:1; font-size:14px !important; padding:10px 12px;">
+          {% for s in status_lista %}
+          <option value="{{ s }}" {% if s == p.status %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn-secondary" style="font-size:14px !important;">Atualizar</button>
+      </form>
+      <form method="post" action="{{ url_for('pedido_excluir', pedido_id=p.id) }}" onsubmit="return confirm('Remover pedido de {{ p.cliente }}?')">
+        <button class="btn-ghost" style="padding:10px 12px;">🗑️</button>
+      </form>
+    </div>
+    {% if p.status == "Concluído" or p.status == "Entregue" %}
+    <p class="font-crimson" style="font-size:11px; color:var(--muted); font-style:italic; margin-top:8px;">
+      ✅ Materiais da receita já baixados do estoque.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

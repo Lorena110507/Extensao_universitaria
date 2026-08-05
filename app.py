@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash
 
 app = Flask(__name__)
@@ -24,7 +25,57 @@ CATEGORIAS = list(CATEGORIAS_EMOJI.keys())
 UNIDADES = ["unidades", "metros", "rolos", "kg", "gramas", "pares", "pacotes"]
 MOTIVOS_BAIXA = ["Produção de bolsa", "Produção de nécessaire", "Amostra / Teste", "Desperdício"]
 
+EMOJIS_PRODUTO = ["👜", "🎒", "👝", "💼", "🧳", "👛"]
+STATUS_PEDIDO = ["Pendente", "Em produção", "Concluído", "Entregue", "Cancelado"]
+STATUS_PEDIDO_BADGE = {
+    "Pendente": "badge-warn",
+    "Em produção": "badge-warn",
+    "Concluído": "badge-ok",
+    "Entregue": "badge-ok",
+    "Cancelado": "badge-low",
+}
+STATUS_SOBRA_BADGE = {
+    "Disponível": "badge-warn",
+    "Reaproveitado": "badge-ok",
+    "Descartado": "badge-low",
+}
+CATEGORIAS_DESPESA = ["Matéria-prima", "Aluguel", "Transporte", "Ferramentas", "Marketing", "Outros"]
 
+
+# ── Persistência genérica (usada pelos módulos novos) ────────────────────────
+def carregar_json(nome_arquivo, seed=None):
+    caminho = os.path.join(DATA_DIR, nome_arquivo)
+    if not os.path.exists(caminho):
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(caminho, "w", encoding="utf-8") as f:
+            json.dump(seed if seed is not None else [], f, ensure_ascii=False, indent=2)
+    with open(caminho, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def salvar_json(nome_arquivo, dados):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    caminho = os.path.join(DATA_DIR, nome_arquivo)
+    with open(caminho, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, indent=2)
+
+
+def registrar_movimentacao(tipo, quantidade, unidade, motivo, material_nome=""):
+    """Grava um evento no histórico (usado em Alertas e Relatórios). Mantém só os 200 mais recentes."""
+    movs = carregar_json("movimentacoes.json")
+    movs.insert(0, {
+        "id": str(uuid.uuid4()),
+        "tipo": tipo,  # entrada | baixa | producao | reaproveitamento
+        "material_nome": material_nome,
+        "quantidade": quantidade,
+        "unidade": unidade,
+        "motivo": motivo or "Não informado",
+        "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+    })
+    salvar_json("movimentacoes.json", movs[:200])
+
+
+# ── Materiais (estoque) ───────────────────────────────────────────────────────
 def carregar_materiais():
     if not os.path.exists(DATA_FILE):
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -92,9 +143,12 @@ def estoque_entrada(material_id):
             qtd = float(request.form.get("quantidade", 0))
         except ValueError:
             qtd = 0
-        m["quantidade"] = round(m["quantidade"] + qtd, 3)
-        salvar_materiais(materiais)
-        flash(f"Entrada registrada em {m['nome']}.")
+        motivo = request.form.get("motivo", "").strip()
+        if qtd > 0:
+            m["quantidade"] = round(m["quantidade"] + qtd, 3)
+            salvar_materiais(materiais)
+            registrar_movimentacao("entrada", qtd, m["unidade"], motivo or "Entrada manual de estoque", m["nome"])
+            flash(f"Entrada registrada em {m['nome']}.")
     return redirect(url_for("estoque"))
 
 
@@ -169,9 +223,11 @@ def baixa():
             qtd = float(request.form.get("quantidade", 0))
         except ValueError:
             qtd = 0
+        motivo = request.form.get("motivo", "").strip()
         if m and qtd > 0:
             m["quantidade"] = round(max(0, m["quantidade"] - qtd), 3)
             salvar_materiais(materiais)
+            registrar_movimentacao("baixa", qtd, m["unidade"], motivo, m["nome"])
             flash(f"Baixa registrada em {m['nome']}.")
         return redirect(url_for("baixa"))
 
@@ -184,19 +240,369 @@ def baixa():
     )
 
 
-# Páginas do menu ainda não reconstruídas — placeholder para não quebrar a navegação.
+# ── Produtos & Receitas ───────────────────────────────────────────────────────
+def calcular_produto(produto, mat_map):
+    """Anexa custo estimado, margem e a receita já resolvida com nome/emoji/unidade dos materiais."""
+    custo = 0.0
+    receita_detalhada = []
+    for item in produto.get("receita", []):
+        m = mat_map.get(item["material_id"])
+        if m:
+            custo += m["custo"] * item["quantidade"]
+            receita_detalhada.append({
+                "nome": m["nome"], "emoji": m["emoji"],
+                "quantidade": item["quantidade"], "unidade": m["unidade"],
+                "disponivel": m["quantidade"],
+            })
+        else:
+            receita_detalhada.append({
+                "nome": "Material removido", "emoji": "❓",
+                "quantidade": item["quantidade"], "unidade": "", "disponivel": None,
+            })
+    p = dict(produto)
+    p["custo_estimado"] = round(custo, 2)
+    p["margem"] = round(produto.get("preco_venda", 0) - custo, 2)
+    p["receita_detalhada"] = receita_detalhada
+    return p
+
+
+@app.route("/produtos")
+def produtos():
+    lista = carregar_json("produtos.json")
+    mat_map = {m["id"]: m for m in carregar_materiais()}
+    produtos_calc = [calcular_produto(p, mat_map) for p in lista]
+    return render_template("produtos.html", produtos=produtos_calc)
+
+
+@app.route("/produtos/novo", methods=["GET", "POST"])
+def produto_novo():
+    materiais = carregar_materiais()
+
+    if request.method == "POST":
+        nome = request.form.get("nome", "").strip()
+        emoji = request.form.get("emoji", "👜").strip() or "👜"
+        try:
+            preco_venda = float(request.form.get("preco_venda", 0) or 0)
+        except ValueError:
+            preco_venda = 0
+
+        mat_ids = request.form.getlist("material_id[]")
+        qtds = request.form.getlist("material_qtd[]")
+        receita = []
+        for mid, q in zip(mat_ids, qtds):
+            if not mid:
+                continue
+            try:
+                qf = float(q)
+            except ValueError:
+                continue
+            if qf <= 0:
+                continue
+            receita.append({"material_id": mid, "quantidade": qf})
+
+        if not nome:
+            flash("Informe o nome do produto.")
+            return redirect(url_for("produto_novo"))
+
+        produtos_lista = carregar_json("produtos.json")
+        produtos_lista.append({
+            "id": str(uuid.uuid4()),
+            "nome": nome,
+            "emoji": emoji,
+            "preco_venda": preco_venda,
+            "receita": receita,
+        })
+        salvar_json("produtos.json", produtos_lista)
+        flash(f"{nome} cadastrado em Produtos & Receitas.")
+        return redirect(url_for("produtos"))
+
+    return render_template("produto_form.html", materiais=materiais, emojis=EMOJIS_PRODUTO)
+
+
+@app.route("/produtos/<produto_id>/excluir", methods=["POST"])
+def produto_excluir(produto_id):
+    produtos_lista = carregar_json("produtos.json")
+    produtos_lista = [p for p in produtos_lista if p["id"] != produto_id]
+    salvar_json("produtos.json", produtos_lista)
+    flash("Produto removido.")
+    return redirect(url_for("produtos"))
+
+
+# ── Pedidos dos Clientes ──────────────────────────────────────────────────────
+@app.route("/pedidos")
+def pedidos():
+    lista = carregar_json("pedidos.json")
+    lista_ordenada = sorted(lista, key=lambda p: p.get("data_pedido_iso", ""), reverse=True)
+    return render_template("pedidos.html", pedidos=lista_ordenada, status_lista=STATUS_PEDIDO,
+                            status_badge=STATUS_PEDIDO_BADGE)
+
+
+@app.route("/pedidos/novo", methods=["GET", "POST"])
+def pedido_novo():
+    produtos_lista = carregar_json("produtos.json")
+
+    if request.method == "POST":
+        cliente = request.form.get("cliente", "").strip()
+        produto_id = request.form.get("produto_id", "")
+        try:
+            quantidade = int(request.form.get("quantidade", 1) or 1)
+        except ValueError:
+            quantidade = 1
+        observacoes = request.form.get("observacoes", "").strip()
+
+        produto = next((p for p in produtos_lista if p["id"] == produto_id), None)
+        if not cliente or not produto or quantidade <= 0:
+            flash("Preencha cliente, produto e uma quantidade válida.")
+            return redirect(url_for("pedido_novo"))
+
+        preco_unit = produto.get("preco_venda", 0)
+        agora = datetime.now()
+        pedidos_lista = carregar_json("pedidos.json")
+        pedidos_lista.append({
+            "id": str(uuid.uuid4()),
+            "cliente": cliente,
+            "produto_id": produto_id,
+            "produto_nome": produto["nome"],
+            "produto_emoji": produto.get("emoji", "👜"),
+            "quantidade": quantidade,
+            "preco_unitario": preco_unit,
+            "valor_total": round(preco_unit * quantidade, 2),
+            "status": "Pendente",
+            "materiais_baixados": False,
+            "data_pedido": agora.strftime("%d/%m/%Y"),
+            "data_pedido_iso": agora.strftime("%Y-%m-%d %H:%M:%S"),
+            "observacoes": observacoes,
+        })
+        salvar_json("pedidos.json", pedidos_lista)
+        flash(f"Pedido de {cliente} registrado.")
+        return redirect(url_for("pedidos"))
+
+    return render_template("pedido_form.html", produtos=produtos_lista)
+
+
+@app.route("/pedidos/<pedido_id>/status", methods=["POST"])
+def pedido_status(pedido_id):
+    novo_status = request.form.get("status", "")
+    if novo_status not in STATUS_PEDIDO:
+        flash("Status inválido.")
+        return redirect(url_for("pedidos"))
+
+    pedidos_lista = carregar_json("pedidos.json")
+    pedido = next((p for p in pedidos_lista if p["id"] == pedido_id), None)
+    if pedido:
+        pedido["status"] = novo_status
+
+        # Ao concluir a produção, dá baixa automática dos materiais da receita (só na 1ª vez).
+        if novo_status == "Concluído" and not pedido.get("materiais_baixados"):
+            produto = next((pr for pr in carregar_json("produtos.json") if pr["id"] == pedido["produto_id"]), None)
+            if produto and produto.get("receita"):
+                materiais = carregar_materiais()
+                for item in produto["receita"]:
+                    m = encontrar(materiais, item["material_id"])
+                    if m:
+                        total = round(item["quantidade"] * pedido["quantidade"], 3)
+                        m["quantidade"] = round(max(0, m["quantidade"] - total), 3)
+                        registrar_movimentacao("producao", total, m["unidade"],
+                                                f"Produção — pedido de {pedido['cliente']}", m["nome"])
+                salvar_materiais(materiais)
+            pedido["materiais_baixados"] = True
+
+        salvar_json("pedidos.json", pedidos_lista)
+        flash(f"Pedido de {pedido['cliente']} atualizado para \"{novo_status}\".")
+    return redirect(url_for("pedidos"))
+
+
+@app.route("/pedidos/<pedido_id>/excluir", methods=["POST"])
+def pedido_excluir(pedido_id):
+    pedidos_lista = carregar_json("pedidos.json")
+    pedidos_lista = [p for p in pedidos_lista if p["id"] != pedido_id]
+    salvar_json("pedidos.json", pedidos_lista)
+    flash("Pedido removido.")
+    return redirect(url_for("pedidos"))
+
+
+# ── Sobras e Reaproveitamento ──────────────────────────────────────────────────
+@app.route("/sobras")
+def sobras():
+    lista = carregar_json("sobras.json")
+    return render_template("sobras.html", sobras=list(reversed(lista)), status_badge=STATUS_SOBRA_BADGE)
+
+
+@app.route("/sobras/novo", methods=["GET", "POST"])
+def sobra_novo():
+    materiais = carregar_materiais()
+
+    if request.method == "POST":
+        material_id = request.form.get("material_id", "")
+        descricao = request.form.get("descricao", "").strip()
+        try:
+            quantidade = float(request.form.get("quantidade", 0) or 0)
+        except ValueError:
+            quantidade = 0
+
+        m = encontrar(materiais, material_id) if material_id else None
+        unidade = m["unidade"] if m else request.form.get("unidade", "unidades")
+        nome_final = descricao or (m["nome"] if m else "Sobra sem descrição")
+
+        if quantidade <= 0:
+            flash("Informe uma quantidade válida.")
+            return redirect(url_for("sobra_novo"))
+
+        sobras_lista = carregar_json("sobras.json")
+        sobras_lista.append({
+            "id": str(uuid.uuid4()),
+            "material_id": material_id,
+            "descricao": nome_final,
+            "quantidade": quantidade,
+            "unidade": unidade,
+            "data": datetime.now().strftime("%d/%m/%Y"),
+            "status": "Disponível",
+        })
+        salvar_json("sobras.json", sobras_lista)
+        flash(f"Sobra de {nome_final} registrada.")
+        return redirect(url_for("sobras"))
+
+    return render_template("sobra_form.html", materiais=materiais)
+
+
+@app.route("/sobras/<sobra_id>/reaproveitar", methods=["POST"])
+def sobra_reaproveitar(sobra_id):
+    sobras_lista = carregar_json("sobras.json")
+    sobra = next((s for s in sobras_lista if s["id"] == sobra_id), None)
+    if sobra and sobra["status"] == "Disponível":
+        if sobra.get("material_id"):
+            materiais = carregar_materiais()
+            m = encontrar(materiais, sobra["material_id"])
+            if m:
+                m["quantidade"] = round(m["quantidade"] + sobra["quantidade"], 3)
+                salvar_materiais(materiais)
+                registrar_movimentacao("reaproveitamento", sobra["quantidade"], sobra["unidade"],
+                                        "Sobra reaproveitada de volta ao estoque", m["nome"])
+        sobra["status"] = "Reaproveitado"
+        salvar_json("sobras.json", sobras_lista)
+        flash(f"{sobra['descricao']} reaproveitada com sucesso.")
+    return redirect(url_for("sobras"))
+
+
+@app.route("/sobras/<sobra_id>/descartar", methods=["POST"])
+def sobra_descartar(sobra_id):
+    sobras_lista = carregar_json("sobras.json")
+    sobra = next((s for s in sobras_lista if s["id"] == sobra_id), None)
+    if sobra and sobra["status"] == "Disponível":
+        sobra["status"] = "Descartado"
+        salvar_json("sobras.json", sobras_lista)
+        flash(f"{sobra['descricao']} marcada como descartada.")
+    return redirect(url_for("sobras"))
+
+
+@app.route("/sobras/<sobra_id>/excluir", methods=["POST"])
+def sobra_excluir(sobra_id):
+    sobras_lista = carregar_json("sobras.json")
+    sobras_lista = [s for s in sobras_lista if s["id"] != sobra_id]
+    salvar_json("sobras.json", sobras_lista)
+    flash("Registro removido.")
+    return redirect(url_for("sobras"))
+
+
+# ── Financeiro ─────────────────────────────────────────────────────────────────
+@app.route("/financeiro")
+def financeiro():
+    materiais = carregar_materiais()
+    valor_estoque = round(sum(m["quantidade"] * m["custo"] for m in materiais), 2)
+
+    pedidos_lista = carregar_json("pedidos.json")
+    receita_entregue = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] == "Entregue"), 2)
+    receita_prevista = round(
+        sum(p["valor_total"] for p in pedidos_lista if p["status"] in ("Pendente", "Em produção", "Concluído")), 2
+    )
+
+    despesas = carregar_json("despesas.json")
+    total_despesas = round(sum(d["valor"] for d in despesas), 2)
+    lucro = round(receita_entregue - total_despesas, 2)
+
+    return render_template(
+        "financeiro.html",
+        valor_estoque=valor_estoque,
+        receita_entregue=receita_entregue,
+        receita_prevista=receita_prevista,
+        despesas=list(reversed(despesas)),
+        total_despesas=total_despesas,
+        lucro=lucro,
+        categorias_despesa=CATEGORIAS_DESPESA,
+    )
+
+
+@app.route("/financeiro/despesa", methods=["POST"])
+def financeiro_despesa():
+    descricao = request.form.get("descricao", "").strip()
+    try:
+        valor = float(request.form.get("valor", 0) or 0)
+    except ValueError:
+        valor = 0
+    categoria = request.form.get("categoria", "Outros")
+
+    if not descricao or valor <= 0:
+        flash("Informe descrição e valor válidos para a despesa.")
+        return redirect(url_for("financeiro"))
+
+    despesas = carregar_json("despesas.json")
+    despesas.append({
+        "id": str(uuid.uuid4()),
+        "descricao": descricao,
+        "valor": valor,
+        "categoria": categoria,
+        "data": datetime.now().strftime("%d/%m/%Y"),
+    })
+    salvar_json("despesas.json", despesas)
+    flash(f'Despesa "{descricao}" registrada.')
+    return redirect(url_for("financeiro"))
+
+
+@app.route("/financeiro/despesa/<despesa_id>/excluir", methods=["POST"])
+def financeiro_despesa_excluir(despesa_id):
+    despesas = carregar_json("despesas.json")
+    despesas = [d for d in despesas if d["id"] != despesa_id]
+    salvar_json("despesas.json", despesas)
+    flash("Despesa removida.")
+    return redirect(url_for("financeiro"))
+
+
+# ── Alertas e Relatórios ───────────────────────────────────────────────────────
+@app.route("/alertas")
+def alertas():
+    materiais = carregar_materiais()
+    baixo_estoque = sorted(
+        [m for m in materiais if m["quantidade"] <= m["quantidade_minima"]],
+        key=lambda m: m["quantidade"],
+    )
+    zerados = [m for m in baixo_estoque if m["quantidade"] == 0]
+    valor_em_risco = round(sum(m["quantidade_minima"] * m["custo"] for m in baixo_estoque), 2)
+
+    por_categoria = {}
+    for m in materiais:
+        c = por_categoria.setdefault(m["categoria"], {"qtd_itens": 0, "valor": 0.0, "emoji": m["emoji"]})
+        c["qtd_itens"] += 1
+        c["valor"] += m["quantidade"] * m["custo"]
+    for c in por_categoria.values():
+        c["valor"] = round(c["valor"], 2)
+
+    movimentacoes = carregar_json("movimentacoes.json")[:30]
+
+    return render_template(
+        "alertas.html",
+        baixo_estoque=baixo_estoque,
+        zerados=zerados,
+        valor_em_risco=valor_em_risco,
+        por_categoria=por_categoria,
+        movimentacoes=movimentacoes,
+        total_materiais=len(materiais),
+    )
+
+
+# Fallback — mantém a navegação de pé para qualquer rota que ainda não exista.
 @app.route("/<pagina>")
 def em_construcao(pagina):
-    titulos = {
-        "produtos": "Produtos & Receitas",
-        "pedidos": "Pedidos dos Clientes",
-        "sobras": "Sobras e Reaproveitamento",
-        "financeiro": "Financeiro",
-        "alertas": "Alertas e Relatórios",
-    }
-    if pagina not in titulos:
-        return redirect(url_for("home"))
-    return render_template("em_construcao.html", titulo=titulos[pagina])
+    return redirect(url_for("home"))
 
 
 if __name__ == "__main__":

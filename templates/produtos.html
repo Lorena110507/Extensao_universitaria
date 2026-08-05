@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Produtos & Receitas" %}
+{% set subtitulo = produtos|length ~ " produto(s) cadastrado(s)" %}
+{% block conteudo %}
+
+<a href="{{ url_for('produto_novo') }}" class="btn-primary" style="margin-bottom:16px;">➕ Novo Produto</a>
+
+{% if not produtos %}
+<div class="card" style="padding:30px; text-align:center;">
+  <p style="font-size:36px;">👜</p>
+  <p class="font-crimson" style="color:var(--muted); font-style:italic; margin-top:8px;">
+    Nenhum produto cadastrado ainda. Cadastre a receita de uma bolsa ou nécessaire para calcular custo e margem automaticamente.
+  </p>
+</div>
+{% endif %}
+
+{% for p in produtos %}
+<div class="card card-ornament" style="margin-bottom:14px; overflow:hidden;">
+  <div style="padding:14px 16px;">
+    <div style="display:flex; gap:14px; align-items:flex-start;">
+      <div style="width:56px; height:56px; border-radius:12px; background:var(--accent-lt);
+                  border:1.5px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <span style="font-size:26px;">{{ p.emoji }}</span>
+      </div>
+      <div style="flex:1; min-width:0;">
+        <p class="font-serif" style="font-size:17px; font-weight:700; color:var(--text); line-height:1.2;">{{ p.nome }}</p>
+        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:13px; margin-top:3px;">
+          Preço de venda: <strong style="color:var(--primary);">R$ {{ "%.2f"|format(p.preco_venda) }}</strong>
+        </p>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px;">
+      <div style="background:var(--accent-lt); border-radius:10px; padding:8px 10px; text-align:center;">
+        <p class="font-crimson" style="font-size:11px; color:var(--muted); font-style:italic;">Custo estimado</p>
+        <p style="font-weight:800; color:var(--primary); font-size:15px;">R$ {{ "%.2f"|format(p.custo_estimado) }}</p>
+      </div>
+      <div style="background:{{ 'var(--danger-lt)' if p.margem < 0 else '#d4edda' }}; border-radius:10px; padding:8px 10px; text-align:center;">
+        <p class="font-crimson" style="font-size:11px; color:var(--muted); font-style:italic;">Margem estimada</p>
+        <p style="font-weight:800; color:{{ 'var(--danger)' if p.margem < 0 else 'var(--success)' }}; font-size:15px;">R$ {{ "%.2f"|format(p.margem) }}</p>
+      </div>
+    </div>
+
+    {% if p.receita_detalhada %}
+    <div style="margin-top:12px;">
+      <p class="font-crimson" style="font-size:12px; color:var(--muted); font-style:italic; margin-bottom:6px;">📋 Receita:</p>
+      {% for item in p.receita_detalhada %}
+      <p class="font-crimson" style="font-size:13px; color:var(--text); margin-bottom:2px;">
+        {{ item.emoji }} {{ item.nome }} — {{ item.quantidade }} {{ item.unidade }}
+        {% if item.disponivel is not none and item.disponivel < item.quantidade %}
+        <span style="color:var(--danger); font-weight:700;">(estoque insuficiente)</span>
+        {% endif %}
+      </p>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="font-crimson" style="font-size:12px; color:var(--muted); font-style:italic; margin-top:10px;">Sem receita de materiais cadastrada.</p>
+    {% endif %}
+
+    <div style="display:flex; gap:8px; margin-top:12px;">
+      <a href="{{ url_for('pedido_novo') }}" class="btn-secondary" style="flex:1; font-size:14px !important;">🧾 Fazer pedido</a>
+      <form method="post" action="{{ url_for('produto_excluir', produto_id=p.id) }}" onsubmit="return confirm('Remover {{ p.nome }}?')">
+        <button class="btn-ghost" style="padding:10px 12px;">🗑️</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

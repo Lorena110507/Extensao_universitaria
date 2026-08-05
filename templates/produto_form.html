@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Novo Produto" %}
+{% block conteudo %}
+
+<form method="post">
+
+  <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
+
+  <div style="margin-bottom:18px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+      📝 NOME DO PRODUTO
+    </label>
+    <input name="nome" required placeholder="Ex: Bolsa Transversal Pequena" class="input-vintage" style="font-size:18px !important; font-family:'Playfair Display',serif;">
+  </div>
+
+  <div style="margin-bottom:18px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:14px;">
+      🎨 ÍCONE
+    </label>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      {% for e in emojis %}
+      <label style="display:flex; align-items:center; justify-content:center; width:50px; height:50px;
+                    background: {{ 'var(--accent-lt)' if loop.first else 'var(--card)' }};
+                    border:1.5px solid {{ 'var(--primary)' if loop.first else 'var(--border)' }};
+                    border-radius:12px; cursor:pointer;" id="lbl-emoji-{{ loop.index }}">
+        <input type="radio" name="emoji" value="{{ e }}" {% if loop.first %}checked{% endif %} onchange="highlightEmoji()" style="display:none;">
+        <span style="font-size:24px;">{{ e }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div style="margin-bottom:18px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">💰 PREÇO DE VENDA (R$)</label>
+    <input name="preco_venda" type="number" min="0" step="0.01" placeholder="0,00" class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
+  </div>
+
+  <div class="ornament" style="margin:16px 0;">· · ·</div>
+
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+      🧵 RECEITA — QUAIS MATERIAIS ESTE PRODUTO USA?
+    </label>
+    <p class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">
+      Isso é usado para calcular o custo do produto e para dar baixa automática no estoque quando um pedido for concluído.
+    </p>
+  </div>
+
+  <div id="linhas-receita"></div>
+
+  <button type="button" class="btn-secondary" style="margin-bottom:24px;" onclick="adicionarLinha()">+ Adicionar material à receita</button>
+
+  <div class="ornament" style="margin-bottom:20px;">· · ·</div>
+
+  <button type="submit" class="btn-primary" style="font-size:18px !important; padding:16px;">
+    ✅ Salvar Produto
+  </button>
+
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function highlightEmoji() {
+  document.querySelectorAll('[id^="lbl-emoji-"]').forEach(el => {
+    const inp = el.querySelector('input[type=radio]');
+    el.style.borderColor = inp.checked ? 'var(--primary)' : 'var(--border)';
+    el.style.background  = inp.checked ? 'var(--accent-lt)' : 'var(--card)';
+  });
+}
+highlightEmoji();
+
+const materiaisDisponiveis = {{ materiais|tojson }};
+const container = document.getElementById('linhas-receita');
+let contador = 0;
+
+function adicionarLinha() {
+  contador++;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex; gap:8px; margin-bottom:8px; align-items:center;';
+  div.id = 'linha-' + contador;
+
+  const opcoes = materiaisDisponiveis.map(m =>
+    `<option value="${m.id}">${m.emoji} ${m.nome} (${m.unidade})</option>`
+  ).join('');
+
+  div.innerHTML = `
+    <select name="material_id[]" class="input-vintage" style="flex:2;">
+      <option value="">— Selecione o material —</option>
+      ${opcoes}
+    </select>
+    <input name="material_qtd[]" type="number" min="0" step="0.01" placeholder="Qtd" class="input-vintage" style="flex:1;">
+    <button type="button" class="btn-ghost" style="padding:10px 12px; flex-shrink:0;" onclick="document.getElementById('linha-${contador}').remove()">✕</button>
+  `;
+  container.appendChild(div);
+}
+
+if (materiaisDisponiveis.length > 0) { adicionarLinha(); }
+</script>
+{% endblock %}

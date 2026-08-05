@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Novo Pedido" %}
+{% block conteudo %}
+
+{% if not produtos %}
+<div class="card" style="padding:24px; text-align:center;">
+  <p style="font-size:36px;">👜</p>
+  <p class="font-crimson" style="color:var(--muted); font-style:italic; margin-top:10px;">
+    Cadastre um produto em "Produtos &amp; Receitas" antes de registrar um pedido.
+  </p>
+  <a href="{{ url_for('produto_novo') }}" class="btn-primary" style="margin-top:16px;">➕ Cadastrar Produto</a>
+</div>
+{% else %}
+<form method="post">
+
+  <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
+
+  <div style="margin-bottom:18px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+      🙋 NOME DO CLIENTE
+    </label>
+    <input name="cliente" required placeholder="Ex: Maria Silva" class="input-vintage" style="font-size:18px !important; font-family:'Playfair Display',serif;">
+  </div>
+
+  <div style="margin-bottom:18px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:14px;">
+      👜 PRODUTO
+    </label>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      {% for p in produtos %}
+      <label style="display:flex; align-items:center; gap:10px; background: {{ 'var(--accent-lt)' if loop.first else 'var(--card)' }};
+                    border:1.5px solid {{ 'var(--primary)' if loop.first else 'var(--border)' }};
+                    border-radius:12px; padding:12px 14px; cursor:pointer;" id="lbl-prod-{{ p.id }}">
+        <input type="radio" name="produto_id" value="{{ p.id }}" data-preco="{{ p.preco_venda }}"
+               {% if loop.first %}checked{% endif %} onchange="atualizarProduto()" style="accent-color:var(--primary); width:18px; height:18px;">
+        <span style="font-size:22px;">{{ p.emoji }}</span>
+        <span class="font-crimson" style="font-size:16px; color:var(--text); flex:1;">{{ p.nome }}</span>
+        <span style="font-weight:700; color:var(--primary); font-size:14px;">R$ {{ "%.2f"|format(p.preco_venda) }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div style="margin-bottom:18px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">📏 QUANTIDADE</label>
+    <input name="quantidade" id="inp-quantidade" type="number" min="1" step="1" value="1" required class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
+  </div>
+
+  <div id="total-box" style="background:var(--accent-lt); border:1.5px solid var(--accent); border-radius:12px;
+       padding:14px 16px; margin-bottom:18px; text-align:center;">
+    <p class="font-crimson" style="color:var(--primary); font-size:14px; font-style:italic;">Valor total do pedido</p>
+    <p class="font-serif" style="font-size:28px; font-weight:700; color:var(--primary);" id="valor-total">R$ 0,00</p>
+  </div>
+
+  <div style="margin-bottom:24px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+      💬 OBSERVAÇÕES <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+    </label>
+    <input name="observacoes" placeholder="Ex: entregar até sexta-feira" class="input-vintage">
+  </div>
+
+  <div class="ornament" style="margin-bottom:20px;">· · ·</div>
+
+  <button type="submit" class="btn-primary" style="font-size:18px !important; padding:16px;">
+    ✅ Registrar Pedido
+  </button>
+
+</form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function highlightProduto() {
+  document.querySelectorAll('[id^="lbl-prod-"]').forEach(el => {
+    const inp = el.querySelector('input[type=radio]');
+    el.style.borderColor = inp.checked ? 'var(--primary)' : 'var(--border)';
+    el.style.background  = inp.checked ? 'var(--accent-lt)' : 'var(--card)';
+  });
+}
+
+function atualizarProduto() {
+  highlightProduto();
+  const marcado = document.querySelector('input[name=produto_id]:checked');
+  const qtd = parseFloat(document.getElementById('inp-quantidade').value) || 0;
+  const preco = marcado ? parseFloat(marcado.dataset.preco) : 0;
+  const total = (preco * qtd).toFixed(2).replace('.', ',');
+  document.getElementById('valor-total').textContent = 'R$ ' + total;
+}
+
+document.getElementById('inp-quantidade').addEventListener('input', atualizarProduto);
+atualizarProduto();
+</script>
+{% endblock %}
