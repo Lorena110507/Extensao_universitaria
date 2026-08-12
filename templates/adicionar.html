@@ -10,7 +10,9 @@
   <div id="resultado-busca" style="margin-top:8px; display:none;"></div>
 </div>
 
-<form method="post" enctype="multipart/form-data">
+<form method="post" enctype="multipart/form-data" onsubmit="this.querySelector('button[type=submit]').disabled=true;">
+
+  <input type="hidden" name="form_token" value="{{ form_token }}">
 
   <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
 

@@ -1,15 +1,21 @@
 import json
 import os
 import uuid
+import sqlite3
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, make_response, session, g, send_from_directory
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.secret_key = "troque-esta-chave-em-producao"
+# Use environment variable for the secret key in production
+app.secret_key = os.environ.get("APP_SECRET", "troque-esta-chave-em-producao")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # No Vercel (serverless) o disco do projeto é só-leitura; gravamos em /tmp lá.
 DATA_DIR = "/tmp" if os.environ.get("VERCEL") else BASE_DIR + "/data"
+DB_PATH = os.path.join(DATA_DIR, "data.db")
+USE_SQLITE = os.environ.get("USE_SQLITE", "1") in ("1", "true", "yes")
 DATA_FILE = os.path.join(DATA_DIR, "materiais.json")
 SEED_FILE = os.path.join(BASE_DIR, "data", "materiais.json")
 
@@ -43,7 +49,42 @@ CATEGORIAS_DESPESA = ["Matéria-prima", "Aluguel", "Transporte", "Ferramentas", 
 
 
 # ── Persistência genérica (usada pelos módulos novos) ────────────────────────
+
+def init_db():
+    """Create a simple per-collection table for storing JSON documents when using SQLite."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS collections (
+            name TEXT NOT NULL,
+            id TEXT PRIMARY KEY,
+            data TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_collections_name ON collections(name)")
+    conn.commit()
+    conn.close()
+
+
 def carregar_json(nome_arquivo, seed=None):
+    """Load a list of items from JSON file or from SQLite collections table when enabled."""
+    if USE_SQLITE:
+        name = os.path.splitext(nome_arquivo)[0]
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT data FROM collections WHERE name=? ORDER BY rowid DESC", (name,))
+        rows = cur.fetchall()
+        conn.close()
+        if not rows and seed is not None:
+            # seed DB from provided seed value
+            salvar_json(nome_arquivo, seed)
+            return seed
+        return [json.loads(r[0]) for r in rows]
+
     caminho = os.path.join(DATA_DIR, nome_arquivo)
     if not os.path.exists(caminho):
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -54,6 +95,24 @@ def carregar_json(nome_arquivo, seed=None):
 
 
 def salvar_json(nome_arquivo, dados):
+    """Save a list of items into JSON file or into SQLite collections table when enabled.
+    Each item must be a dict and will have an id field.
+    """
+    if USE_SQLITE:
+        name = os.path.splitext(nome_arquivo)[0]
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        # remove previous collection rows
+        cur.execute("DELETE FROM collections WHERE name=?", (name,))
+        for item in dados:
+            _id = item.get("id") or str(uuid.uuid4())
+            item["id"] = _id
+            cur.execute("INSERT INTO collections(name, id, data) VALUES (?, ?, ?)", (name, _id, json.dumps(item, ensure_ascii=False)))
+        conn.commit()
+        conn.close()
+        return
+
     os.makedirs(DATA_DIR, exist_ok=True)
     caminho = os.path.join(DATA_DIR, nome_arquivo)
     with open(caminho, "w", encoding="utf-8") as f:
@@ -67,16 +126,102 @@ def registrar_movimentacao(tipo, quantidade, unidade, motivo, material_nome=""):
         "id": str(uuid.uuid4()),
         "tipo": tipo,  # entrada | baixa | producao | reaproveitamento
         "material_nome": material_nome,
-        "quantidade": quantidade,
+        "quantidade": quantity := quantidade,
         "unidade": unidade,
         "motivo": motivo or "Não informado",
         "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "usuario": session.get("user_id") if session else None,
     })
     salvar_json("movimentacoes.json", movs[:200])
 
 
+# ── Autenticação simples (usuários em collections 'usuarios') ─────────────────
+
+def carregar_usuarios():
+    return carregar_json("usuarios.json", seed=[])
+
+
+def salvar_usuarios(usuarios):
+    return salvar_json("usuarios.json", usuarios)
+
+
+def encontrar_usuario_por_username(username):
+    usuarios = carregar_usuarios()
+    for u in usuarios:
+        if u.get("username") == username:
+            return u
+    return None
+
+
+def criar_usuario_padrao_se_necessario():
+    usuarios = carregar_usuarios()
+    if not usuarios:
+        senha = os.environ.get("ADMIN_PASSWORD", "admin")
+        usuario = {
+            "id": str(uuid.uuid4()),
+            "username": "admin",
+            "password_hash": generate_password_hash(senha),
+            "created_at": datetime.now().isoformat(),
+        }
+        usuarios.append(usuario)
+        salvar_usuarios(usuarios)
+
+
+criar_usuario_padrao_se_necessario()
+
+
+@app.before_request
+def require_login():
+    # Allow these endpoints unauthenticated
+    allowed = {"login", "static", "home", "exportar", "em_construcao"}
+    if request.endpoint is None:
+        return
+    if request.endpoint in allowed:
+        return
+    if session.get("user_id"):
+        g.user = session.get("user_id")
+        return
+    return redirect(url_for("login", next=request.path))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        senha = request.form.get("password", "")
+        user = encontrar_usuario_por_username(username)
+        if user and check_password_hash(user.get("password_hash", ""), senha):
+            session["user_id"] = user["id"]
+            flash("Autenticado com sucesso.")
+            nxt = request.args.get("next") or url_for("home")
+            return redirect(nxt)
+        flash("Usuário ou senha inválidos.")
+        return redirect(url_for("login"))
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.pop("user_id", None)
+    flash("Desconectado.")
+    return redirect(url_for("login"))
+
+
 # ── Materiais (estoque) ───────────────────────────────────────────────────────
 def carregar_materiais():
+    # When using SQLite, read from the 'materiais' collection; seed from SEED_FILE if empty.
+    if USE_SQLITE:
+        seed = None
+        if os.path.exists(SEED_FILE):
+            with open(SEED_FILE, encoding="utf-8") as f:
+                try:
+                    seed = json.load(f)
+                except Exception:
+                    seed = None
+        mats = carregar_json("materiais.json", seed=seed)
+        # normalize foto field to be a filename if present
+        return mats
+
     if not os.path.exists(DATA_FILE):
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(SEED_FILE, encoding="utf-8") as f:
@@ -88,6 +233,9 @@ def carregar_materiais():
 
 
 def salvar_materiais(materiais):
+    if USE_SQLITE:
+        return salvar_json("materiais.json", materiais)
+
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(materiais, f, ensure_ascii=False, indent=2)
@@ -166,6 +314,13 @@ def adicionar():
     materiais = carregar_materiais()
 
     if request.method == "POST":
+        # Basic form token to avoid duplicate submissions
+        token = request.form.get('form_token')
+        expected = session.pop('form_token', None)
+        if not token or token != expected:
+            flash('Formulário já foi enviado ou token inválido. Por favor, tente novamente.')
+            return redirect(url_for('adicionar'))
+
         nome = request.form.get("nome", "").strip()
         categoria = request.form.get("categoria", "Outros")
         gtin = request.form.get("gtin", "").strip()
@@ -183,8 +338,15 @@ def adicionar():
         except ValueError:
             custo = 0
 
+        # Basic duplicate prevention: same name + gtin
+        existe = next((m for m in materiais if m["nome"].strip().lower() == nome.lower() and (m.get("gtin") or "") == gtin), None)
+        if existe:
+            flash("Material com mesmo nome/GTIN já existe no estoque.")
+            return redirect(url_for("adicionar"))
+
+        novo_id = str(uuid.uuid4())
         novo = {
-            "id": str(uuid.uuid4()),
+            "id": novo_id,
             "nome": nome,
             "categoria": categoria,
             "emoji": CATEGORIAS_EMOJI.get(categoria, "🔹"),
@@ -194,6 +356,18 @@ def adicionar():
             "custo": custo,
             "gtin": gtin,
         }
+
+        # Handle optional photo upload
+        foto = None
+        if 'foto' in request.files:
+            f = request.files.get('foto')
+            if f and f.filename:
+                os.makedirs(os.path.join(DATA_DIR, 'uploads'), exist_ok=True)
+                filename = secure_filename(f"{novo_id}_{f.filename}")
+                caminho = os.path.join(DATA_DIR, 'uploads', filename)
+                f.save(caminho)
+                novo['foto'] = filename
+
         materiais.append(novo)
         salvar_materiais(materiais)
         flash(f"{nome} adicionado ao estoque.")
@@ -204,11 +378,14 @@ def adicionar():
         {"id": m["id"], "nome": m["nome"], "gtin": m.get("gtin") or "", "quantidade": m["quantidade"], "unidade": m["unidade"]}
         for m in materiais
     ]
+    # generate a one-time token to prevent duplicate form submits
+    session['form_token'] = str(uuid.uuid4())
     return render_template(
         "adicionar.html",
         categorias=CATEGORIAS_EMOJI,
         unidades=UNIDADES,
         materiais_json=lista_busca,
+        form_token=session['form_token'],
     )
 
 
@@ -597,6 +774,33 @@ def alertas():
         movimentacoes=movimentacoes,
         total_materiais=len(materiais),
     )
+
+
+# Serve uploaded files
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    uploads_dir = os.path.join(DATA_DIR, 'uploads')
+    return send_from_directory(uploads_dir, filename)
+
+
+# Exportar todos os dados (backup)
+@app.route("/exportar")
+def exportar_tudo():
+    colecoes = [
+        "materiais.json",
+        "produtos.json",
+        "pedidos.json",
+        "movimentacoes.json",
+        "sobras.json",
+        "despesas.json",
+    ]
+    tudo = {}
+    for c in colecoes:
+        tudo[os.path.splitext(c)[0]] = carregar_json(c)
+    resp = make_response(json.dumps(tudo, ensure_ascii=False, indent=2))
+    resp.headers["Content-Type"] = "application/json; charset=utf-8"
+    resp.headers["Content-Disposition"] = "attachment; filename=export_all.json"
+    return resp
 
 
 # Fallback — mantém a navegação de pé para qualquer rota que ainda não exista.
