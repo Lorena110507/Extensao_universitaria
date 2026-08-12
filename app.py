@@ -51,10 +51,14 @@ CATEGORIAS_DESPESA = ["Matéria-prima", "Aluguel", "Transporte", "Ferramentas", 
 # ── Persistência genérica (usada pelos módulos novos) ────────────────────────
 
 def init_db():
-    """Create a simple per-collection table for storing JSON documents when using SQLite."""
+    """Initialize SQLite database and tables used by the app when USE_SQLITE is enabled.
+    Creates both a generic collections table (legacy) and a proper 'materiais' table with
+    uniqueness constraints and transactional guarantees.
+    """
     os.makedirs(DATA_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+    # legacy generic collection storage (used for produtos, pedidos, etc.)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS collections (
@@ -65,6 +69,31 @@ def init_db():
         """
     )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_collections_name ON collections(name)")
+
+    # proper materiais table with explicit columns and uniqueness on (lower(nome), gtin)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS materiais (
+            id TEXT PRIMARY KEY,
+            nome TEXT NOT NULL,
+            categoria TEXT,
+            emoji TEXT,
+            quantidade REAL DEFAULT 0,
+            unidade TEXT,
+            quantidade_minima REAL DEFAULT 0,
+            custo REAL DEFAULT 0,
+            gtin TEXT,
+            foto TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+    # case-insensitive uniqueness on name+gtin to avoid duplicates
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_materiais_nome_gtin ON materiais (lower(nome), gtin)"
+    )
+
     conn.commit()
     conn.close()
 
@@ -209,18 +238,64 @@ def logout():
 
 # ── Materiais (estoque) ───────────────────────────────────────────────────────
 def carregar_materiais():
-    # When using SQLite, read from the 'materiais' collection; seed from SEED_FILE if empty.
+    # When using SQLite, read from the proper 'materiais' table with a transaction.
     if USE_SQLITE:
-        seed = None
-        if os.path.exists(SEED_FILE):
-            with open(SEED_FILE, encoding="utf-8") as f:
-                try:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(1) as cnt FROM materiais")
+        cnt = cur.fetchone()[0]
+        if cnt == 0 and os.path.exists(SEED_FILE):
+            # seed the table from the JSON seed file
+            try:
+                with open(SEED_FILE, encoding="utf-8") as f:
                     seed = json.load(f)
-                except Exception:
-                    seed = None
-        mats = carregar_json("materiais.json", seed=seed)
-        # normalize foto field to be a filename if present
-        return mats
+            except Exception:
+                seed = []
+            if seed:
+                now = datetime.now().isoformat()
+                to_insert = []
+                for m in seed:
+                    _id = m.get("id") or str(uuid.uuid4())
+                    to_insert.append((
+                        _id,
+                        m.get("nome"),
+                        m.get("categoria"),
+                        m.get("emoji"),
+                        float(m.get("quantidade") or 0),
+                        m.get("unidade"),
+                        float(m.get("quantidade_minima") or 0),
+                        float(m.get("custo") or 0),
+                        m.get("gtin"),
+                        m.get("foto"),
+                        now,
+                        now,
+                    ))
+                cur.executemany(
+                    "INSERT OR IGNORE INTO materiais (id,nome,categoria,emoji,quantidade,unidade,quantidade_minima,custo,gtin,foto,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    to_insert,
+                )
+                conn.commit()
+        cur.execute("SELECT * FROM materiais ORDER BY nome COLLATE NOCASE")
+        rows = cur.fetchall()
+        conn.close()
+        # convert rows to dicts matching previous JSON structure
+        result = []
+        for r in rows:
+            result.append({
+                "id": r["id"],
+                "nome": r["nome"],
+                "categoria": r["categoria"],
+                "emoji": r["emoji"],
+                "quantidade": r["quantidade"],
+                "unidade": r["unidade"],
+                "quantidade_minima": r["quantidade_minima"],
+                "custo": r["custo"],
+                "gtin": r["gtin"],
+                "foto": r["foto"],
+            })
+        return result
 
     if not os.path.exists(DATA_FILE):
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -234,7 +309,50 @@ def carregar_materiais():
 
 def salvar_materiais(materiais):
     if USE_SQLITE:
-        return salvar_json("materiais.json", materiais)
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        try:
+            # Use a transaction to atomically replace the materials set.
+            cur.execute("BEGIN IMMEDIATE")
+            # We'll upsert per id to preserve uniqueness constraints
+            # Clear names that are no longer present
+            incoming_ids = [m.get("id") for m in materiais if m.get("id")]
+            if incoming_ids:
+                # delete any rows not in incoming_ids
+                placeholders = ",".join(["?" for _ in incoming_ids])
+                cur.execute(f"DELETE FROM materiais WHERE id NOT IN ({placeholders})", incoming_ids)
+            else:
+                cur.execute("DELETE FROM materiais")
+
+            now = datetime.now().isoformat()
+            for m in materiais:
+                _id = m.get("id") or str(uuid.uuid4())
+                cur.execute(
+                    "INSERT OR REPLACE INTO materiais (id,nome,categoria,emoji,quantidade,unidade,quantidade_minima,custo,gtin,foto,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,COALESCE((SELECT created_at FROM materiais WHERE id=?),?),?)",
+                    (
+                        _id,
+                        m.get("nome"),
+                        m.get("categoria"),
+                        m.get("emoji"),
+                        float(m.get("quantidade") or 0),
+                        m.get("unidade"),
+                        float(m.get("quantidade_minima") or 0),
+                        float(m.get("custo") or 0),
+                        m.get("gtin"),
+                        m.get("foto"),
+                        _id,
+                        now,
+                        now,
+                    ),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return
 
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
