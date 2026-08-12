@@ -52,8 +52,8 @@ CATEGORIAS_DESPESA = ["Matéria-prima", "Aluguel", "Transporte", "Ferramentas", 
 
 def init_db():
     """Initialize SQLite database and tables used by the app when USE_SQLITE is enabled.
-    Creates both a generic collections table (legacy) and a proper 'materiais' table with
-    uniqueness constraints and transactional guarantees.
+    Creates both a generic collections table (legacy) and proper normalized tables for
+    materiais, produtos, pedidos, movimentacoes, sobras, despesas and usuarios.
     """
     os.makedirs(DATA_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -94,7 +94,7 @@ def init_db():
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_materiais_nome_gtin ON materiais (lower(nome), gtin)"
     )
 
-    # produtos and pedidos tables
+    # produtos table
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS produtos (
@@ -108,6 +108,8 @@ def init_db():
         )
         """
     )
+
+    # pedidos table
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS pedidos (
@@ -126,6 +128,67 @@ def init_db():
             observacoes TEXT,
             created_at TEXT,
             updated_at TEXT
+        )
+        """
+    )
+
+    # movimentacoes (audit/history)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS movimentacoes (
+            id TEXT PRIMARY KEY,
+            tipo TEXT,
+            material_nome TEXT,
+            quantidade REAL,
+            unidade TEXT,
+            motivo TEXT,
+            data TEXT,
+            usuario TEXT,
+            created_at TEXT
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_movimentacoes_created ON movimentacoes(created_at)")
+
+    # sobras
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sobras (
+            id TEXT PRIMARY KEY,
+            material_id TEXT,
+            descricao TEXT,
+            quantidade REAL,
+            unidade TEXT,
+            data TEXT,
+            status TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+
+    # despesas
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS despesas (
+            id TEXT PRIMARY KEY,
+            descricao TEXT,
+            valor REAL,
+            categoria TEXT,
+            data TEXT,
+            created_at TEXT
+        )
+        """
+    )
+
+    # usuarios
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id TEXT PRIMARY KEY,
+            username TEXT UNIQUE,
+            password_hash TEXT,
+            created_at TEXT
         )
         """
     )
@@ -185,17 +248,41 @@ def salvar_json(nome_arquivo, dados):
 
 
 def registrar_movimentacao(tipo, quantidade, unidade, motivo, material_nome=""):
-    """Grava um evento no histórico (usado em Alertas e Relatórios). Mantém só os 200 mais recentes."""
+    """Grava um evento no histórico (usado em Alertas e Relatórios). Mantém só os 200 mais recentes.
+    Persiste em tabela movimentacoes quando USE_SQLITE está ativo, e mantém ainda o arquivo JSON legada
+    para compatibilidade com código antigo.
+    """
+    usuario = session.get("user_id") if session else None
+    data_text = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "INSERT INTO movimentacoes (id,tipo,material_nome,quantidade,unidade,motivo,data,usuario,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (str(uuid.uuid4()), tipo, material_nome, float(quantidade or 0), unidade, motivo or "Não informado", data_text, usuario, datetime.now().isoformat()),
+            )
+            # Keep only 200 latest rows
+            cur.execute("DELETE FROM movimentacoes WHERE id NOT IN (SELECT id FROM movimentacoes ORDER BY created_at DESC LIMIT 200)")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        finally:
+            conn.close()
+
+    # legacy JSON fallback/update (kept for templates that read movimentacoes.json)
     movs = carregar_json("movimentacoes.json")
     movs.insert(0, {
         "id": str(uuid.uuid4()),
-        "tipo": tipo,  # entrada | baixa | producao | reaproveitamento
+        "tipo": tipo,
         "material_nome": material_nome,
-        "quantidade": quantity := quantidade,
+        "quantidade": float(quantidade or 0),
         "unidade": unidade,
         "motivo": motivo or "Não informado",
-        "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "usuario": session.get("user_id") if session else None,
+        "data": data_text,
+        "usuario": usuario,
     })
     salvar_json("movimentacoes.json", movs[:200])
 
@@ -203,14 +290,51 @@ def registrar_movimentacao(tipo, quantidade, unidade, motivo, material_nome=""):
 # ── Autenticação simples (usuários em collections 'usuarios') ─────────────────
 
 def carregar_usuarios():
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM usuarios ORDER BY username")
+        rows = cur.fetchall()
+        conn.close()
+        return [{"id": r["id"], "username": r["username"], "password_hash": r["password_hash"], "created_at": r["created_at"]} for r in rows]
     return carregar_json("usuarios.json", seed=[])
 
 
 def salvar_usuarios(usuarios):
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute("DELETE FROM usuarios")
+            now = datetime.now().isoformat()
+            for u in usuarios:
+                _id = u.get("id") or str(uuid.uuid4())
+                cur.execute("INSERT INTO usuarios (id,username,password_hash,created_at) VALUES (?,?,?,?)", (_id, u.get("username"), u.get("password_hash"), u.get("created_at") or now))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return
     return salvar_json("usuarios.json", usuarios)
 
 
 def encontrar_usuario_por_username(username):
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM usuarios WHERE username=?", (username,))
+        r = cur.fetchone()
+        conn.close()
+        return {"id": r["id"], "username": r["username"], "password_hash": r["password_hash"], "created_at": r["created_at"]} if r else None
+
     usuarios = carregar_usuarios()
     for u in usuarios:
         if u.get("username") == username:
@@ -219,6 +343,20 @@ def encontrar_usuario_por_username(username):
 
 
 def criar_usuario_padrao_se_necessario():
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(1) FROM usuarios")
+        cnt = cur.fetchone()[0]
+        if cnt == 0:
+            senha = os.environ.get("ADMIN_PASSWORD", "admin")
+            uid = str(uuid.uuid4())
+            cur.execute("INSERT INTO usuarios (id,username,password_hash,created_at) VALUES (?,?,?,?)", (uid, 'admin', generate_password_hash(senha), datetime.now().isoformat()))
+            conn.commit()
+        conn.close()
+        return
+
     usuarios = carregar_usuarios()
     if not usuarios:
         senha = os.environ.get("ADMIN_PASSWORD", "admin")
@@ -456,7 +594,36 @@ def estoque_entrada(material_id):
 
 @app.route("/estoque/<material_id>/excluir", methods=["POST"])
 def estoque_excluir(material_id):
+    # Remove material and its photo (if present). Works with JSON or SQLite backend.
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT foto FROM materiais WHERE id=?", (material_id,))
+        r = cur.fetchone()
+        if r and r["foto"]:
+            caminho = os.path.join(DATA_DIR, 'uploads', r["foto"])
+            try:
+                if os.path.exists(caminho):
+                    os.remove(caminho)
+            except Exception:
+                pass
+        cur.execute("DELETE FROM materiais WHERE id=?", (material_id,))
+        conn.commit()
+        conn.close()
+        flash("Material removido.")
+        return redirect(url_for("estoque"))
+
     materiais = carregar_materiais()
+    to_remove = next((m for m in materiais if m["id"] == material_id), None)
+    if to_remove and to_remove.get("foto"):
+        caminho = os.path.join(DATA_DIR, 'uploads', to_remove.get('foto'))
+        try:
+            if os.path.exists(caminho):
+                os.remove(caminho)
+        except Exception:
+            pass
     materiais = [m for m in materiais if m["id"] != material_id]
     salvar_materiais(materiais)
     flash("Material removido.")
@@ -920,6 +1087,27 @@ def pedido_excluir(pedido_id):
 # ── Sobras e Reaproveitamento ──────────────────────────────────────────────────
 @app.route("/sobras")
 def sobras():
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM sobras ORDER BY created_at DESC")
+        rows = cur.fetchall()
+        conn.close()
+        sobs = []
+        for r in rows:
+            sobs.append({
+                "id": r["id"],
+                "material_id": r["material_id"],
+                "descricao": r["descricao"],
+                "quantidade": r["quantidade"],
+                "unidade": r["unidade"],
+                "data": r["data"],
+                "status": r["status"],
+            })
+        return render_template("sobras.html", sobras=sobs, status_badge=STATUS_SOBRA_BADGE)
+
     lista = carregar_json("sobras.json")
     return render_template("sobras.html", sobras=list(reversed(lista)), status_badge=STATUS_SOBRA_BADGE)
 
@@ -944,17 +1132,27 @@ def sobra_novo():
             flash("Informe uma quantidade válida.")
             return redirect(url_for("sobra_novo"))
 
-        sobras_lista = carregar_json("sobras.json")
-        sobras_lista.append({
-            "id": str(uuid.uuid4()),
-            "material_id": material_id,
-            "descricao": nome_final,
-            "quantidade": quantidade,
-            "unidade": unidade,
-            "data": datetime.now().strftime("%d/%m/%Y"),
-            "status": "Disponível",
-        })
-        salvar_json("sobras.json", sobras_lista)
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            now = datetime.now().isoformat()
+            cur.execute("INSERT INTO sobras (id,material_id,descricao,quantidade,unidade,data,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), material_id, nome_final, quantidade, unidade, datetime.now().strftime("%d/%m/%Y"), "Disponível", now, now))
+            conn.commit()
+            conn.close()
+        else:
+            sobras_lista = carregar_json("sobras.json")
+            sobras_lista.append({
+                "id": str(uuid.uuid4()),
+                "material_id": material_id,
+                "descricao": nome_final,
+                "quantidade": quantidade,
+                "unidade": unidade,
+                "data": datetime.now().strftime("%d/%m/%Y"),
+                "status": "Disponível",
+            })
+            salvar_json("sobras.json", sobras_lista)
         flash(f"Sobra de {nome_final} registrada.")
         return redirect(url_for("sobras"))
 
@@ -963,6 +1161,29 @@ def sobra_novo():
 
 @app.route("/sobras/<sobra_id>/reaproveitar", methods=["POST"])
 def sobra_reaproveitar(sobra_id):
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM sobras WHERE id=?", (sobra_id,))
+        s = cur.fetchone()
+        if s and s["status"] == "Disponível":
+            if s["material_id"]:
+                # increment material quantity
+                cur.execute("SELECT quantidade, unidade, nome FROM materiais WHERE id=?", (s["material_id"],))
+                mat = cur.fetchone()
+                if mat:
+                    nova = round(float(mat["quantidade"]) + float(s["quantidade"]), 3)
+                    cur.execute("UPDATE materiais SET quantidade=?, updated_at=? WHERE id=?", (nova, datetime.now().isoformat(), s["material_id"]))
+                    # register movimentacao
+                    registrar_movimentacao("reaproveitamento", s["quantidade"], s["unidade"], "Sobra reaproveitada de volta ao estoque", mat["nome"]) 
+            cur.execute("UPDATE sobras SET status=?, updated_at=? WHERE id=?", ("Reaproveitado", datetime.now().isoformat(), sobra_id))
+            conn.commit()
+            conn.close()
+            flash("Sobra reaproveitada com sucesso.")
+        return redirect(url_for("sobras"))
+
     sobras_lista = carregar_json("sobras.json")
     sobra = next((s for s in sobras_lista if s["id"] == sobra_id), None)
     if sobra and sobra["status"] == "Disponível":
@@ -982,6 +1203,19 @@ def sobra_reaproveitar(sobra_id):
 
 @app.route("/sobras/<sobra_id>/descartar", methods=["POST"])
 def sobra_descartar(sobra_id):
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT status FROM sobras WHERE id=?", (sobra_id,))
+        r = cur.fetchone()
+        if r and r[0] == "Disponível":
+            cur.execute("UPDATE sobras SET status=?, updated_at=? WHERE id=?", ("Descartado", datetime.now().isoformat(), sobra_id))
+            conn.commit()
+        conn.close()
+        flash("Sobra marcada como descartada.")
+        return redirect(url_for("sobras"))
+
     sobras_lista = carregar_json("sobras.json")
     sobra = next((s for s in sobras_lista if s["id"] == sobra_id), None)
     if sobra and sobra["status"] == "Disponível":
@@ -993,6 +1227,16 @@ def sobra_descartar(sobra_id):
 
 @app.route("/sobras/<sobra_id>/excluir", methods=["POST"])
 def sobra_excluir(sobra_id):
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM sobras WHERE id=?", (sobra_id,))
+        conn.commit()
+        conn.close()
+        flash("Registro removido.")
+        return redirect(url_for("sobras"))
+
     sobras_lista = carregar_json("sobras.json")
     sobras_lista = [s for s in sobras_lista if s["id"] != sobra_id]
     salvar_json("sobras.json", sobras_lista)
@@ -1006,6 +1250,40 @@ def financeiro():
     materiais = carregar_materiais()
     valor_estoque = round(sum(m["quantidade"] * m["custo"] for m in materiais), 2)
 
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM pedidos")
+        pedidos_rows = cur.fetchall()
+        pedidos_lista = [{
+            "id": r["id"],
+            "status": r["status"],
+            "valor_total": r["valor_total"],
+        } for r in pedidos_rows]
+        receita_entregue = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] == "Entregue"), 2)
+        receita_prevista = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] in ("Pendente", "Em produção", "Concluído")), 2)
+
+        cur.execute("SELECT * FROM despesas ORDER BY created_at DESC")
+        despesas_rows = cur.fetchall()
+        despesas = [{"id": r["id"], "descricao": r["descricao"], "valor": r["valor"], "categoria": r["categoria"], "data": r["data"]} for r in despesas_rows]
+        conn.close()
+        total_despesas = round(sum(d["valor"] for d in despesas), 2)
+        lucro = round(receita_entregue - total_despesas, 2)
+
+        return render_template(
+            "financeiro.html",
+            valor_estoque=valor_estoque,
+            receita_entregue=receita_entregue,
+            receita_prevista=receita_prevista,
+            despesas=list(reversed(despesas)),
+            total_despesas=total_despesas,
+            lucro=lucro,
+            categorias_despesa=CATEGORIAS_DESPESA,
+        )
+
+    # legacy JSON path
     pedidos_lista = carregar_json("pedidos.json")
     receita_entregue = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] == "Entregue"), 2)
     receita_prevista = round(
@@ -1041,6 +1319,18 @@ def financeiro_despesa():
         flash("Informe descrição e valor válidos para a despesa.")
         return redirect(url_for("financeiro"))
 
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        cur.execute("INSERT INTO despesas (id,descricao,valor,categoria,data,created_at) VALUES (?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), descricao, float(valor), categoria, datetime.now().strftime("%d/%m/%Y"), now))
+        conn.commit()
+        conn.close()
+        flash(f'Despesa "{descricao}" registrada.')
+        return redirect(url_for("financeiro"))
+
     despesas = carregar_json("despesas.json")
     despesas.append({
         "id": str(uuid.uuid4()),
@@ -1056,6 +1346,16 @@ def financeiro_despesa():
 
 @app.route("/financeiro/despesa/<despesa_id>/excluir", methods=["POST"])
 def financeiro_despesa_excluir(despesa_id):
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM despesas WHERE id=?", (despesa_id,))
+        conn.commit()
+        conn.close()
+        flash("Despesa removida.")
+        return redirect(url_for("financeiro"))
+
     despesas = carregar_json("despesas.json")
     despesas = [d for d in despesas if d["id"] != despesa_id]
     salvar_json("despesas.json", despesas)
@@ -1082,7 +1382,28 @@ def alertas():
     for c in por_categoria.values():
         c["valor"] = round(c["valor"], 2)
 
-    movimentacoes = carregar_json("movimentacoes.json")[:30]
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM movimentacoes ORDER BY created_at DESC LIMIT 30")
+        rows = cur.fetchall()
+        movimentacoes = []
+        for r in rows:
+            movimentacoes.append({
+                "id": r["id"],
+                "tipo": r["tipo"],
+                "material_nome": r["material_nome"],
+                "quantidade": r["quantidade"],
+                "unidade": r["unidade"],
+                "motivo": r["motivo"],
+                "data": r["data"],
+                "usuario": r["usuario"],
+            })
+        conn.close()
+    else:
+        movimentacoes = carregar_json("movimentacoes.json")[:30]
 
     return render_template(
         "alertas.html",
