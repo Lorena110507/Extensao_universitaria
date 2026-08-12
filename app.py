@@ -94,6 +94,42 @@ def init_db():
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_materiais_nome_gtin ON materiais (lower(nome), gtin)"
     )
 
+    # produtos and pedidos tables
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS produtos (
+            id TEXT PRIMARY KEY,
+            nome TEXT NOT NULL,
+            emoji TEXT,
+            preco_venda REAL DEFAULT 0,
+            receita TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pedidos (
+            id TEXT PRIMARY KEY,
+            cliente TEXT,
+            produto_id TEXT,
+            produto_nome TEXT,
+            produto_emoji TEXT,
+            quantidade INTEGER,
+            preco_unitario REAL,
+            valor_total REAL,
+            status TEXT,
+            materiais_baixados INTEGER DEFAULT 0,
+            data_pedido TEXT,
+            data_pedido_iso TEXT,
+            observacoes TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
@@ -536,6 +572,58 @@ def baixa():
 
 
 # ── Produtos & Receitas ───────────────────────────────────────────────────────
+def carregar_produtos():
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM produtos ORDER BY nome COLLATE NOCASE")
+        rows = cur.fetchall()
+        conn.close()
+        res = []
+        for r in rows:
+            receita = []
+            try:
+                receita = json.loads(r["receita"]) if r["receita"] else []
+            except Exception:
+                receita = []
+            res.append({
+                "id": r["id"],
+                "nome": r["nome"],
+                "emoji": r["emoji"],
+                "preco_venda": r["preco_venda"],
+                "receita": receita,
+            })
+        return res
+    return carregar_json("produtos.json")
+
+
+def salvar_produtos(produtos):
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute("DELETE FROM produtos")
+            now = datetime.now().isoformat()
+            for p in produtos:
+                _id = p.get("id") or str(uuid.uuid4())
+                cur.execute(
+                    "INSERT INTO produtos (id,nome,emoji,preco_venda,receita,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+                    (_id, p.get("nome"), p.get("emoji"), float(p.get("preco_venda") or 0), json.dumps(p.get("receita") or [] , ensure_ascii=False), now, now),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return
+    return salvar_json("produtos.json", produtos)
+
+
 def calcular_produto(produto, mat_map):
     """Anexa custo estimado, margem e a receita já resolvida com nome/emoji/unidade dos materiais."""
     custo = 0.0
@@ -563,7 +651,7 @@ def calcular_produto(produto, mat_map):
 
 @app.route("/produtos")
 def produtos():
-    lista = carregar_json("produtos.json")
+    lista = carregar_produtos()
     mat_map = {m["id"]: m for m in carregar_materiais()}
     produtos_calc = [calcular_produto(p, mat_map) for p in lista]
     return render_template("produtos.html", produtos=produtos_calc)
@@ -599,7 +687,7 @@ def produto_novo():
             flash("Informe o nome do produto.")
             return redirect(url_for("produto_novo"))
 
-        produtos_lista = carregar_json("produtos.json")
+        produtos_lista = carregar_produtos()
         produtos_lista.append({
             "id": str(uuid.uuid4()),
             "nome": nome,
@@ -607,7 +695,7 @@ def produto_novo():
             "preco_venda": preco_venda,
             "receita": receita,
         })
-        salvar_json("produtos.json", produtos_lista)
+        salvar_produtos(produtos_lista)
         flash(f"{nome} cadastrado em Produtos & Receitas.")
         return redirect(url_for("produtos"))
 
@@ -616,9 +704,9 @@ def produto_novo():
 
 @app.route("/produtos/<produto_id>/excluir", methods=["POST"])
 def produto_excluir(produto_id):
-    produtos_lista = carregar_json("produtos.json")
+    produtos_lista = carregar_produtos()
     produtos_lista = [p for p in produtos_lista if p["id"] != produto_id]
-    salvar_json("produtos.json", produtos_lista)
+    salvar_produtos(produtos_lista)
     flash("Produto removido.")
     return redirect(url_for("produtos"))
 
@@ -626,6 +714,33 @@ def produto_excluir(produto_id):
 # ── Pedidos dos Clientes ──────────────────────────────────────────────────────
 @app.route("/pedidos")
 def pedidos():
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM pedidos ORDER BY data_pedido_iso DESC")
+        rows = cur.fetchall()
+        conn.close()
+        res = []
+        for r in rows:
+            res.append({
+                "id": r["id"],
+                "cliente": r["cliente"],
+                "produto_id": r["produto_id"],
+                "produto_nome": r["produto_nome"],
+                "produto_emoji": r["produto_emoji"],
+                "quantidade": r["quantidade"],
+                "preco_unitario": r["preco_unitario"],
+                "valor_total": r["valor_total"],
+                "status": r["status"],
+                "materiais_baixados": bool(r["materiais_baixados"]),
+                "data_pedido": r["data_pedido"],
+                "data_pedido_iso": r["data_pedido_iso"],
+                "observacoes": r["observacoes"],
+            })
+        return render_template("pedidos.html", pedidos=res, status_lista=STATUS_PEDIDO, status_badge=STATUS_PEDIDO_BADGE)
+
     lista = carregar_json("pedidos.json")
     lista_ordenada = sorted(lista, key=lambda p: p.get("data_pedido_iso", ""), reverse=True)
     return render_template("pedidos.html", pedidos=lista_ordenada, status_lista=STATUS_PEDIDO,
@@ -634,7 +749,7 @@ def pedidos():
 
 @app.route("/pedidos/novo", methods=["GET", "POST"])
 def pedido_novo():
-    produtos_lista = carregar_json("produtos.json")
+    produtos_lista = carregar_produtos() if USE_SQLITE else carregar_json("produtos.json")
 
     if request.method == "POST":
         cliente = request.form.get("cliente", "").strip()
@@ -652,8 +767,7 @@ def pedido_novo():
 
         preco_unit = produto.get("preco_venda", 0)
         agora = datetime.now()
-        pedidos_lista = carregar_json("pedidos.json")
-        pedidos_lista.append({
+        novo = {
             "id": str(uuid.uuid4()),
             "cliente": cliente,
             "produto_id": produto_id,
@@ -667,8 +781,23 @@ def pedido_novo():
             "data_pedido": agora.strftime("%d/%m/%Y"),
             "data_pedido_iso": agora.strftime("%Y-%m-%d %H:%M:%S"),
             "observacoes": observacoes,
-        })
-        salvar_json("pedidos.json", pedidos_lista)
+        }
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO pedidos (id,cliente,produto_id,produto_nome,produto_emoji,quantidade,preco_unitario,valor_total,status,materiais_baixados,data_pedido,data_pedido_iso,observacoes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    novo["id"], novo["cliente"], novo["produto_id"], novo["produto_nome"], novo["produto_emoji"], novo["quantidade"], novo["preco_unitario"], novo["valor_total"], novo["status"], 0, novo["data_pedido"], novo["data_pedido_iso"], novo["observacoes"], agora.isoformat(), agora.isoformat()
+                )
+            )
+            conn.commit()
+            conn.close()
+        else:
+            pedidos_lista = carregar_json("pedidos.json")
+            pedidos_lista.append(novo)
+            salvar_json("pedidos.json", pedidos_lista)
         flash(f"Pedido de {cliente} registrado.")
         return redirect(url_for("pedidos"))
 
@@ -682,6 +811,68 @@ def pedido_status(pedido_id):
         flash("Status inválido.")
         return redirect(url_for("pedidos"))
 
+    if USE_SQLITE:
+        # perform transactional status update and material deduction if necessary
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute("SELECT * FROM pedidos WHERE id=?", (pedido_id,))
+            p = cur.fetchone()
+            if not p:
+                conn.rollback()
+                flash("Pedido não encontrado.")
+                return redirect(url_for("pedidos"))
+            # update status
+            cur.execute("UPDATE pedidos SET status=?, updated_at=? WHERE id=?", (novo_status, datetime.now().isoformat(), pedido_id))
+
+            # if concluding production, deduct materials only once
+            if novo_status == "Concluído" and not p["materiais_baixados"]:
+                # load product recipe
+                cur.execute("SELECT * FROM produtos WHERE id=?", (p["produto_id"],))
+                pr = cur.fetchone()
+                if pr and pr["receita"]:
+                    receita = []
+                    try:
+                        receita = json.loads(pr["receita"])
+                    except Exception:
+                        receita = []
+                    for item in receita:
+                        mat_id = item.get("material_id")
+                        qtd_por_unidade = float(item.get("quantidade") or 0)
+                        total = round(qtd_por_unidade * p["quantidade"], 3)
+                        # decrement material quantity
+                        cur.execute("SELECT quantidade, unidade, nome FROM materiais WHERE id=?", (mat_id,))
+                        mat = cur.fetchone()
+                        if mat:
+                            nova = max(0, float(mat["quantidade"]) - total)
+                            cur.execute("UPDATE materiais SET quantidade=?, updated_at=? WHERE id=?", (nova, datetime.now().isoformat(), mat_id))
+                            # registrar movimentacao into collections table as legacy JSON storage
+                            movs = carregar_json("movimentacoes.json")
+                            movs.insert(0, {
+                                "id": str(uuid.uuid4()),
+                                "tipo": "producao",
+                                "material_nome": mat["nome"],
+                                "quantidade": total,
+                                "unidade": mat["unidade"],
+                                "motivo": f"Produção — pedido de {p['cliente']}",
+                                "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                                "usuario": session.get("user_id") if session else None,
+                            })
+                            salvar_json("movimentacoes.json", movs[:200])
+                    cur.execute("UPDATE pedidos SET materiais_baixados=1, updated_at=? WHERE id=?", (datetime.now().isoformat(), pedido_id))
+            conn.commit()
+            flash(f"Pedido atualizado para \"{novo_status}\".")
+        except Exception as e:
+            conn.rollback()
+            flash("Erro ao atualizar pedido: " + str(e))
+        finally:
+            conn.close()
+        return redirect(url_for("pedidos"))
+
+    # legacy JSON path
     pedidos_lista = carregar_json("pedidos.json")
     pedido = next((p for p in pedidos_lista if p["id"] == pedido_id), None)
     if pedido:
@@ -702,13 +893,23 @@ def pedido_status(pedido_id):
                 salvar_materiais(materiais)
             pedido["materiais_baixados"] = True
 
-        salvar_json("pedidos.json", pedidos_lista)
-        flash(f"Pedido de {pedido['cliente']} atualizado para \"{novo_status}\".")
+    salvar_json("pedidos.json", pedidos_lista)
+    flash(f"Pedido de {pedido['cliente']} atualizado para \"{novo_status}\".")
     return redirect(url_for("pedidos"))
 
 
 @app.route("/pedidos/<pedido_id>/excluir", methods=["POST"])
 def pedido_excluir(pedido_id):
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM pedidos WHERE id=?", (pedido_id,))
+        conn.commit()
+        conn.close()
+        flash("Pedido removido.")
+        return redirect(url_for("pedidos"))
+
     pedidos_lista = carregar_json("pedidos.json")
     pedidos_lista = [p for p in pedidos_lista if p["id"] != pedido_id]
     salvar_json("pedidos.json", pedidos_lista)
