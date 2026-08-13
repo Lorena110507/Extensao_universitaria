@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Criar Usuário" %}
+{% block conteudo %}
+
+<h3 class="font-serif">Criar novo usuário</h3>
+<form method="post" style="margin-top:12px; max-width:420px;">
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Nome de usuário</label>
+    <input name="username" required class="input-vintage" placeholder="Digite um nome de acesso">
+  </div>
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Senha</label>
+    <input name="password" type="password" required class="input-vintage" placeholder="Senha segura">
+  </div>
+  <div style="margin-bottom:18px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Confirme a senha</label>
+    <input name="password2" type="password" required class="input-vintage" placeholder="Repita a senha">
+  </div>
+  <button type="submit" class="btn-primary">✅ Criar usuário</button>
+</form>
+
+{% endblock %}

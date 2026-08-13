@@ -410,6 +410,91 @@ def logout():
     return redirect(url_for("login"))
 
 
+# ── Usuários (admin) ──────────────────────────────────────────────────────────
+@app.route("/usuarios")
+def usuarios():
+    usuarios = carregar_usuarios()
+    return render_template("usuarios.html", usuarios=usuarios)
+
+
+@app.route("/usuarios/novo", methods=["GET", "POST"]) 
+def usuarios_novo():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        password2 = request.form.get("password2", "")
+
+        if not username or not password:
+            flash("Nome de usuário e senha são obrigatórios.")
+            return redirect(url_for('usuarios_novo'))
+        if password != password2:
+            flash("As senhas não conferem.")
+            return redirect(url_for('usuarios_novo'))
+        exists = encontrar_usuario_por_username(username)
+        if exists:
+            flash("Já existe um usuário com este nome.")
+            return redirect(url_for('usuarios_novo'))
+
+        now = datetime.now().isoformat()
+        uid = str(uuid.uuid4())
+        password_hash = generate_password_hash(password)
+
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            try:
+                cur.execute("INSERT INTO usuarios (id,username,password_hash,created_at) VALUES (?,?,?,?)", (uid, username, password_hash, now))
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                flash('Erro ao criar usuário: ' + str(e))
+                return redirect(url_for('usuarios_novo'))
+            finally:
+                conn.close()
+        else:
+            usuarios = carregar_usuarios()
+            usuarios.append({
+                'id': uid,
+                'username': username,
+                'password_hash': password_hash,
+                'created_at': now,
+            })
+            salvar_usuarios(usuarios)
+
+        flash('Usuário criado com sucesso.')
+        return redirect(url_for('usuarios'))
+
+    return render_template('usuario_form.html')
+
+
+@app.route('/usuarios/<user_id>/excluir', methods=['POST'])
+def usuarios_excluir(user_id):
+    # Prevent removing the last user accidentally
+    usuarios = carregar_usuarios()
+    if len(usuarios) <= 1:
+        flash('Não é possível remover o último usuário.')
+        return redirect(url_for('usuarios'))
+
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        try:
+            cur.execute('DELETE FROM usuarios WHERE id=?', (user_id,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        finally:
+            conn.close()
+    else:
+        usuarios = [u for u in usuarios if u.get('id') != user_id]
+        salvar_usuarios(usuarios)
+
+    flash('Usuário removido.')
+    return redirect(url_for('usuarios'))
+
+
 # ── Materiais (estoque) ───────────────────────────────────────────────────────
 def carregar_materiais():
     # When using SQLite, read from the proper 'materiais' table with a transaction.
