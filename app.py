@@ -562,7 +562,8 @@ ROLE_PERMISSIONS = {
 @app.before_request
 def require_login():
     # Allow these endpoints unauthenticated
-    allowed = {"login", "static", "home", "em_construcao"}
+    # allow public endpoints (login page, static assets, and a maintenance page)
+    allowed = {"login", "static", "em_construcao"}
     if request.endpoint is None:
         return
     if request.endpoint in allowed:
