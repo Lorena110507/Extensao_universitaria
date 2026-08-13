@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+import secrets
 import sqlite3
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, make_response, session, g, send_from_directory
@@ -373,6 +374,47 @@ def criar_usuario_padrao_se_necessario():
 criar_usuario_padrao_se_necessario()
 
 
+def recreate_db_with_admin_forced():
+    """If RECREATE_DB env var is set (1/true/yes), delete and recreate the SQLite DB and
+    inject an 'admin' user with a generated password. Writes credentials to data/admin_credentials.txt
+    so the operator can retrieve the password after starting the app.
+    """
+    if not USE_SQLITE:
+        return
+    if os.environ.get('RECREATE_DB', '').lower() not in ('1', 'true', 'yes'):
+        return
+    try:
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+    except Exception:
+        pass
+    # Recreate schema
+    init_db()
+    pwd = secrets.token_urlsafe(10)
+    uid = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("INSERT OR REPLACE INTO usuarios (id,username,password_hash,created_at) VALUES (?,?,?,?)", (uid, 'admin', generate_password_hash(pwd), now))
+        conn.commit()
+    finally:
+        conn.close()
+    os.makedirs(DATA_DIR, exist_ok=True)
+    cred_path = os.path.join(DATA_DIR, 'admin_credentials.txt')
+    try:
+        with open(cred_path, 'w', encoding='utf-8') as f:
+            f.write(f"username: admin\npassword: {pwd}\ncreated_at: {now}\n")
+    except Exception:
+        pass
+    # Also print so logs/console show it when app starts
+    print(f"RECREATE_DB: created {DB_PATH} and wrote admin credentials to {cred_path}")
+
+# If the deploy/start command explicitly asks for recreation, do it now
+if os.environ.get('RECREATE_DB', '').lower() in ('1','true','yes'):
+    recreate_db_with_admin_forced()
+
+
 @app.before_request
 def require_login():
     # Allow these endpoints unauthenticated
@@ -393,11 +435,21 @@ def login():
         username = request.form.get("username", "").strip()
         senha = request.form.get("password", "")
         user = encontrar_usuario_por_username(username)
-        if user and check_password_hash(user.get("password_hash", ""), senha):
-            session["user_id"] = user["id"]
-            flash("Autenticado com sucesso.")
-            nxt = request.args.get("next") or url_for("home")
-            return redirect(nxt)
+        if user:
+            stored = user.get("password_hash", "")
+            # Backward/compatibility: allow a stored plaintext marker 'PLAIN:' for quick local setup
+            if stored.startswith('PLAIN:'):
+                if stored[len('PLAIN:'):] == senha:
+                    session["user_id"] = user["id"]
+                    flash("Autenticado com sucesso.")
+                    nxt = request.args.get("next") or url_for("home")
+                    return redirect(nxt)
+            else:
+                if check_password_hash(stored, senha):
+                    session["user_id"] = user["id"]
+                    flash("Autenticado com sucesso.")
+                    nxt = request.args.get("next") or url_for("home")
+                    return redirect(nxt)
         flash("Usuário ou senha inválidos.")
         return redirect(url_for("login"))
     return render_template("login.html")
