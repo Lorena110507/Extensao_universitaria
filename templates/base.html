@@ -26,7 +26,16 @@
         <p class="font-crimson" style="font-size:13px; color:#fde9c2; font-style:italic;">{{ subtitulo }}</p>
         {% endif %}
       </div>
-      <button id="btn-menu" class="btn-menu" aria-label="Abrir menu" type="button">☰</button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        {% if g.get('user') %}
+          <div style="font-size:13px; color:#fde9c2; text-align:right;">
+            <div style="font-weight:700;">{{ g.user.username }}</div>
+            <div style="font-size:11px; color:#f7e7c9">{{ g.user.role }}</div>
+          </div>
+          <a href="{{ url_for('logout') }}" class="btn-ghost" style="margin-left:6px; color:#fde9c2; border-color:rgba(255,255,255,0.15);">Sair</a>
+        {% endif %}
+        <button id="btn-menu" class="btn-menu" aria-label="Abrir menu" type="button">☰</button>
+      </div>
     </div>
   </header>
 
