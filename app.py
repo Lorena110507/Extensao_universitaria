@@ -1580,6 +1580,164 @@ def exportar_tudo():
     return resp
 
 
+# Exportar relatório financeiro em PDF
+@app.route('/exportar/pdf')
+def exportar_financeiro_pdf():
+    try:
+        from io import BytesIO
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.units import mm
+    except Exception:
+        return ("Biblioteca ReportLab não instalada. Instale com: pip install reportlab"), 400
+
+    materiais = carregar_materiais()
+    valor_estoque = round(sum(m.get("quantidade", 0) * m.get("custo", 0) for m in materiais), 2)
+
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM pedidos")
+        pedidos_rows = cur.fetchall()
+        pedidos_lista = [{
+            "id": r["id"],
+            "status": r["status"],
+            "valor_total": r["valor_total"],
+        } for r in pedidos_rows]
+        receita_entregue = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] == "Entregue"), 2)
+        receita_prevista = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] in ("Pendente", "Em produção", "Concluído")), 2)
+
+        cur.execute("SELECT * FROM despesas ORDER BY created_at DESC LIMIT 20")
+        despesas_rows = cur.fetchall()
+        despesas = [{"descricao": r["descricao"], "valor": r["valor"], "categoria": r["categoria"], "data": r["data"]} for r in despesas_rows]
+        conn.close()
+    else:
+        pedidos_lista = carregar_json("pedidos.json")
+        receita_entregue = round(sum(p.get("valor_total", 0) for p in pedidos_lista if p.get("status") == "Entregue"), 2)
+        receita_prevista = round(sum(p.get("valor_total", 0) for p in pedidos_lista if p.get("status") in ("Pendente", "Em produção", "Concluído")), 2)
+        despesas = carregar_json("despesas.json")[:20]
+
+    total_despesas = round(sum(d.get("valor", 0) for d in despesas), 2)
+    lucro = round(receita_entregue - total_despesas, 2)
+
+    # Build PDF
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+    margin = 20 * mm
+    y = height - margin
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(margin, y, "Relatório Financeiro")
+    y -= 10 * mm
+
+    c.setFont("Helvetica", 11)
+    lines = [
+        f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        f"Valor em estoque: R$ {valor_estoque:.2f}",
+        f"Receita (entregue): R$ {receita_entregue:.2f}",
+        f"Receita (prevista): R$ {receita_prevista:.2f}",
+        f"Total despesas (últimas 20): R$ {total_despesas:.2f}",
+        f"Lucro estimado: R$ {lucro:.2f}",
+    ]
+    for ln in lines:
+        c.drawString(margin, y, ln)
+        y -= 7 * mm
+
+    y -= 4 * mm
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin, y, "Despesas (últimas 20)")
+    y -= 8 * mm
+    c.setFont("Helvetica", 10)
+    for d in despesas:
+        texto = f"{d.get('data','')}: {d.get('descricao','')} — R$ {float(d.get('valor',0)):.2f} ({d.get('categoria','')})"
+        c.drawString(margin, y, texto[:120])
+        y -= 6 * mm
+        if y < margin + 40*mm:
+            c.showPage()
+            y = height - margin
+            c.setFont("Helvetica", 10)
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+
+    return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name='relatorio_financeiro.pdf')
+
+
+# Exportar todos em Excel (XLSX)
+@app.route('/exportar/xlsx')
+def exportar_tudo_xlsx():
+    try:
+        from io import BytesIO
+        from openpyxl import Workbook
+    except Exception:
+        return ("Biblioteca openpyxl não instalada. Instale com: pip install openpyxl"), 400
+
+    colecoes = [
+        "materiais.json",
+        "produtos.json",
+        "pedidos.json",
+        "movimentacoes.json",
+        "sobras.json",
+        "despesas.json",
+    ]
+
+    wb = Workbook()
+    # remove default sheet handling by reusing it for first collection
+    first = True
+    for cfile in colecoes:
+        sheet_name = os.path.splitext(cfile)[0][:31]
+        data_list = carregar_json(cfile)
+        if first:
+            ws = wb.active
+            ws.title = sheet_name
+            first = False
+        else:
+            ws = wb.create_sheet(title=sheet_name)
+
+        if not data_list:
+            ws.append(["(vazio)"])
+            continue
+        # determine headers union of all keys
+        headers = set()
+        for item in data_list:
+            if isinstance(item, dict):
+                headers.update(item.keys())
+        headers = list(sorted(headers))
+        ws.append(headers)
+        for item in data_list:
+            if isinstance(item, dict):
+                row = [item.get(h, "") for h in headers]
+            else:
+                row = [str(item)]
+            ws.append(row)
+
+    # add a summary sheet
+    summary = wb.create_sheet(title="resumo")
+    materiais = carregar_materiais()
+    valor_estoque = round(sum(m.get("quantidade", 0) * m.get("custo", 0) for m in materiais), 2)
+    summary.append(["Relatório gerado em", datetime.now().isoformat()])
+    summary.append(["Valor em estoque", valor_estoque])
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='export_all.xlsx')
+
+
+# Fallback — mantém a navegação de pé para qualquer rota que ainda não exista.
+@app.route("/<pagina>")
+def em_construcao(pagina):
+    return redirect(url_for("home"))
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
 # Fallback — mantém a navegação de pé para qualquer rota que ainda não exista.
 @app.route("/<pagina>")
 def em_construcao(pagina):

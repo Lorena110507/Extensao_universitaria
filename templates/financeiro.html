@@ -28,7 +28,14 @@
   </p>
 </div>
 
-<div class="ornament" style="margin:16px 0;">· · ·</div>
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+  <div class="ornament" style="margin:16px 0;">· · ·</div>
+  <div style="margin-left:12px; display:flex; gap:8px;">
+    <a href="{{ url_for('exportar_financeiro_pdf') }}" class="btn-primary" style="padding:8px 12px;">📄 Exportar PDF</a>
+<a href="{{ url_for('exportar_tudo') }}" class="btn-ghost" style="padding:8px 10px;">⬇️ Exportar JSON</a>
+<a href="{{ url_for('exportar_tudo_xlsx') }}" class="btn-primary" style="padding:8px 12px; background:var(--accent);">📊 Exportar Excel</a>
+  </div>
+</div>
 
 <p class="font-serif" style="font-size:16px; font-weight:700; color:var(--primary); margin-bottom:10px;">💸 Registrar Despesa</p>
 <form method="post" action="{{ url_for('financeiro_despesa') }}" style="margin-bottom:20px;">
