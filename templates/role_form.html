@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Editar Permissões" %}
+{% block conteudo %}
+
+<h3>Editar permissões para {{ role }}</h3>
+
+<form method="post">
+  <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+    <label style="width:200px;">Recurso (identificador)</label>
+    <input name="resource" placeholder="ex: financeiro" required style="flex:1;">
+  </div>
+  <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
+    <label><input type="checkbox" name="can_create"> Create</label>
+    <label><input type="checkbox" name="can_read"> Read</label>
+    <label><input type="checkbox" name="can_update"> Update</label>
+    <label><input type="checkbox" name="can_delete"> Delete</label>
+  </div>
+  <button class="btn-primary">Salvar</button>
+  <a href="{{ url_for('roles') }}" class="btn-ghost">Voltar</a>
+</form>
+
+{% if entries %}
+  <h4 style="margin-top:18px">Entradas existentes</h4>
+  <table style="width:100%; border-collapse:collapse;">
+    <thead><tr><th>Recurso</th><th>Create</th><th>Read</th><th>Update</th><th>Delete</th></tr></thead>
+    <tbody>
+    {% for e in entries %}
+      <tr>
+        <td>{{ e.resource }}</td>
+        <td style="text-align:center">{{ '✔️' if e.can_create else '' }}</td>
+        <td style="text-align:center">{{ '✔️' if e.can_read else '' }}</td>
+        <td style="text-align:center">{{ '✔️' if e.can_update else '' }}</td>
+        <td style="text-align:center">{{ '✔️' if e.can_delete else '' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+{% endblock %}

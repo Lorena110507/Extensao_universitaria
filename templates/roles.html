@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Gerenciar Permissões" %}
+{% block conteudo %}
+
+<h3>Permissões por Papel</h3>
+<p>Adicione uma entrada para um recurso específico e marque as ações permitidas (Create/Read/Update/Delete).</p>
+
+{% if roles %}
+  {% for role, entries in roles.items() %}
+    <section style="margin-bottom:18px;">
+      <h4 style="margin-bottom:6px;">{{ role }}</h4>
+      <table style="width:100%; border-collapse:collapse; margin-bottom:6px;">
+        <thead>
+          <tr><th style="text-align:left">Recurso</th><th>Create</th><th>Read</th><th>Update</th><th>Delete</th></tr>
+        </thead>
+        <tbody>
+        {% for e in entries %}
+          <tr>
+            <td>{{ e.resource }}</td>
+            <td style="text-align:center">{{ '✔️' if e.can_create else '' }}</td>
+            <td style="text-align:center">{{ '✔️' if e.can_read else '' }}</td>
+            <td style="text-align:center">{{ '✔️' if e.can_update else '' }}</td>
+            <td style="text-align:center">{{ '✔️' if e.can_delete else '' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <a href="{{ url_for('roles_editar', role=role) }}" class="btn-ghost">✏️ Editar permissões para {{ role }}</a>
+    </section>
+  {% endfor %}
+{% else %}
+  <p>Nenhuma permissão configurada ainda.</p>
+{% endif %}
+
+<hr>
+<h4>Adicionar/Editar permissões para um papel</h4>
+<form method="get" action="{{ url_for('roles_editar', role='') }}" onsubmit="event.preventDefault(); window.location = '{{ url_for('roles_editar', role='') }}' + document.getElementById('role_name').value;">
+  <label>Nome do papel: <input id="role_name" name="role" placeholder="Financeiro" required></label>
+  <button class="btn-primary" style="margin-left:8px;">Editar</button>
+</form>
+
+{% endblock %}

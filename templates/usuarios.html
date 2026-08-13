@@ -4,7 +4,10 @@
 
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
   <h3 class="font-serif">Usuários</h3>
-  <a href="{{ url_for('usuarios_novo') }}" class="btn-primary" style="padding:8px 12px; font-size:14px;">➕ Novo Usuário</a>
+  <div style="display:flex; gap:8px;">
+    <a href="{{ url_for('usuarios_novo') }}" class="btn-primary" style="padding:8px 12px; font-size:14px;">➕ Novo Usuário</a>
+    <a href="{{ url_for('roles') }}" class="btn-secondary" style="padding:8px 12px; font-size:14px;">🛡️ Gerenciar Permissões</a>
+  </div>
 </div>
 
 {% if usuarios %}

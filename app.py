@@ -69,6 +69,48 @@ def requires_roles(*allowed_roles):
     return decorator
 
 
+def requires_permission(resource, action):
+    """Decorator to check fine-grained CRUD permissions stored in DB (role_permissions table).
+    action should be one of 'create','read','update','delete'. Admin bypasses all checks.
+    If no explicit permission row exists, falls back to ROLE_PERMISSIONS endpoint-based check.
+    """
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            if not g.get('user'):
+                return redirect(url_for('login', next=request.path))
+            role = g.user.get('role','')
+            if role == 'Admin':
+                return f(*args, **kwargs)
+            col_map = {'create':'can_create','read':'can_read','update':'can_update','delete':'can_delete'}
+            col = col_map.get(action)
+            allowed = False
+            if USE_SQLITE:
+                try:
+                    init_db()
+                    conn = sqlite3.connect(DB_PATH)
+                    cur = conn.cursor()
+                    # column name is controlled by code above (no user input)
+                    cur.execute(f"SELECT {col} FROM role_permissions WHERE role=? AND resource=?", (role, resource))
+                    row = cur.fetchone()
+                    conn.close()
+                    if row and row[0] == 1:
+                        allowed = True
+                except Exception:
+                    allowed = False
+            # fallback to endpoint-based ROLE_PERMISSIONS
+            if not allowed:
+                allowed_roles = ROLE_PERMISSIONS.get(request.endpoint)
+                if allowed_roles and role in allowed_roles:
+                    allowed = True
+            if allowed:
+                return f(*args, **kwargs)
+            flash('Acesso negado: você não tem permissão para acessar esta área.')
+            return redirect(url_for('home'))
+        return wrapped
+    return decorator
+
+
 def init_db():
     """Initialize SQLite database and tables used by the app when USE_SQLITE is enabled.
     Creates both a generic collections table (legacy) and proper normalized tables for
@@ -220,6 +262,37 @@ def init_db():
             cur.execute("ALTER TABLE usuarios ADD COLUMN role TEXT")
     except Exception:
         pass
+
+    # role_permissions table: per-role per-resource CRUD flags
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS role_permissions (
+            role TEXT NOT NULL,
+            resource TEXT NOT NULL,
+            can_create INTEGER DEFAULT 0,
+            can_read INTEGER DEFAULT 0,
+            can_update INTEGER DEFAULT 0,
+            can_delete INTEGER DEFAULT 0,
+            updated_at TEXT,
+            PRIMARY KEY (role, resource)
+        )
+        """
+    )
+
+    # audits table: records actor, target, action and details for sensitive changes
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audits (
+            id TEXT PRIMARY KEY,
+            actor_id TEXT,
+            actor_username TEXT,
+            target_user_id TEXT,
+            action TEXT,
+            details TEXT,
+            created_at TEXT
+        )
+        """
+    )
 
     conn.commit()
     conn.close()
@@ -590,6 +663,13 @@ def minha_conta():
             cur = conn.cursor()
             cur.execute('UPDATE usuarios SET password_hash=? WHERE id=?', (new_hash, g.user.get('id')))
             conn.commit()
+            # audit log: user changed own password
+            try:
+                cur.execute("INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?,?,?,?,?,?,?)",
+                            (str(uuid.uuid4()), session.get('user_id'), g.user.get('username') if g.get('user') else None, g.user.get('id'), 'change_password', '', datetime.now().isoformat()))
+                conn.commit()
+            except Exception:
+                conn.rollback()
             conn.close()
         else:
             usuarios = carregar_usuarios()
@@ -649,6 +729,13 @@ def usuarios_novo():
             try:
                 cur.execute("INSERT INTO usuarios (id,username,password_hash,role,created_at) VALUES (?,?,?,?,?)", (uid, username, password_hash, role, now))
                 conn.commit()
+                # audit log: who created this user
+                try:
+                    cur.execute("INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?,?,?,?,?,?,?)",
+                                (str(uuid.uuid4()), session.get('user_id'), g.user.get('username') if g.get('user') else None, uid, 'create_user', f'role={role}', datetime.now().isoformat()))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
             except Exception as e:
                 conn.rollback()
                 flash('Erro ao criar usuário: ' + str(e))
@@ -693,6 +780,13 @@ def usuarios_excluir(user_id):
         try:
             cur.execute('DELETE FROM usuarios WHERE id=?', (user_id,))
             conn.commit()
+            # audit log: who deleted this user
+            try:
+                cur.execute("INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?,?,?,?,?,?,?)",
+                            (str(uuid.uuid4()), session.get('user_id'), g.user.get('username') if g.get('user') else None, user_id, 'delete_user', '', datetime.now().isoformat()))
+                conn.commit()
+            except Exception:
+                conn.rollback()
         except Exception:
             conn.rollback()
         finally:
@@ -744,6 +838,14 @@ def usuarios_editar(user_id):
                 else:
                     cur.execute('UPDATE usuarios SET role=?, updated_at=? WHERE id=?', (role, datetime.now().isoformat(), user_id))
                 conn.commit()
+                # audit log: who updated this user (role/password)
+                try:
+                    details = f'role={role};password_changed={"yes" if new_pwd else "no"}'
+                    cur.execute("INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?,?,?,?,?,?,?)",
+                                (str(uuid.uuid4()), session.get('user_id'), g.user.get('username') if g.get('user') else None, user_id, 'update_user', details, datetime.now().isoformat()))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
             except Exception:
                 conn.rollback()
             finally:
@@ -760,6 +862,65 @@ def usuarios_editar(user_id):
         return redirect(url_for('usuarios'))
 
     return render_template('usuario_edit.html', usuario=usuario)
+
+
+# Roles management (Admin)
+@app.route('/roles')
+@requires_roles('Admin')
+def roles():
+    if not (g.get('user') and g.user.get('role') == 'Admin'):
+        flash('Acesso negado.')
+        return redirect(url_for('home'))
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT role, resource, can_create, can_read, can_update, can_delete, updated_at FROM role_permissions ORDER BY role, resource")
+    rows = cur.fetchall()
+    conn.close()
+    roles = {}
+    for r in rows:
+        role_name = r[0]
+        roles.setdefault(role_name, []).append({
+            'resource': r[1],
+            'can_create': r[2],
+            'can_read': r[3],
+            'can_update': r[4],
+            'can_delete': r[5],
+            'updated_at': r[6]
+        })
+    return render_template('roles.html', roles=roles)
+
+
+@app.route('/roles/<role>/editar', methods=['GET','POST'])
+@requires_roles('Admin')
+def roles_editar(role):
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    if request.method == 'POST':
+        resource = request.form.get('resource','').strip()
+        can_create = 1 if request.form.get('can_create') else 0
+        can_read = 1 if request.form.get('can_read') else 0
+        can_update = 1 if request.form.get('can_update') else 0
+        can_delete = 1 if request.form.get('can_delete') else 0
+        now = datetime.now().isoformat()
+        try:
+            cur.execute("INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete, updated_at) VALUES (?,?,?,?,?,?,?)",
+                        (role, resource, can_create, can_read, can_update, can_delete, now))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        # reload
+        cur.execute("SELECT role, resource, can_create, can_read, can_update, can_delete FROM role_permissions WHERE role=?", (role,))
+        rows = cur.fetchall()
+        conn.close()
+        flash('Permissão atualizada.')
+        return redirect(url_for('roles'))
+    cur.execute("SELECT role, resource, can_create, can_read, can_update, can_delete FROM role_permissions WHERE role=?", (role,))
+    rows = cur.fetchall()
+    conn.close()
+    entries = [{'resource':r[1],'can_create':r[2],'can_read':r[3],'can_update':r[4],'can_delete':r[5]} for r in rows]
+    return render_template('role_form.html', role=role, entries=entries)
 
 
 # ── Materiais (estoque) ───────────────────────────────────────────────────────
