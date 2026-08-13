@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Editar Usuário" %}
+{% block conteudo %}
+
+<h3 class="font-serif">Editar usuário</h3>
+<form method="post" style="margin-top:12px; max-width:420px;">
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Nome de usuário</label>
+    <input name="username" value="{{ usuario.username }}" readonly class="input-vintage">
+  </div>
+
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Área / Papel</label>
+    <select name="role" class="input-vintage">
+      {% for opt in ['Admin','Financeiro','Estoque','Producao','Vendas','Relatorios',''] %}
+      <option value="{{ opt }}" {% if usuario.role == opt %}selected{% endif %}>{{ opt if opt else 'Nenhum/Limitado' }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Nova senha (opcional)</label>
+    <input name="password" type="password" class="input-vintage" placeholder="Deixe em branco para manter a senha atual">
+  </div>
+
+  <button type="submit" class="btn-primary">💾 Salvar alterações</button>
+</form>
+
+{% endblock %}

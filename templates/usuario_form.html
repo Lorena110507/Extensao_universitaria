@@ -12,9 +12,21 @@
     <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Senha</label>
     <input name="password" type="password" required class="input-vintage" placeholder="Senha segura">
   </div>
-  <div style="margin-bottom:18px;">
+  <div style="margin-bottom:12px;">
     <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Confirme a senha</label>
     <input name="password2" type="password" required class="input-vintage" placeholder="Repita a senha">
+  </div>
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Área / Papel</label>
+    <select name="role" class="input-vintage">
+      <option value="Admin">Admin (acesso total)</option>
+      <option value="Financeiro">Financeiro</option>
+      <option value="Estoque">Estoque</option>
+      <option value="Producao">Produção</option>
+      <option value="Vendas">Vendas</option>
+      <option value="Relatorios">Relatórios</option>
+      <option value="">Nenhum/Limitado</option>
+    </select>
   </div>
   <button type="submit" class="btn-primary">✅ Criar usuário</button>
 </form>

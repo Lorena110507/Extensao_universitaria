@@ -5,6 +5,7 @@ import secrets
 import sqlite3
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, make_response, session, g, send_from_directory
+from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -50,6 +51,23 @@ CATEGORIAS_DESPESA = ["Matéria-prima", "Aluguel", "Transporte", "Ferramentas", 
 
 
 # ── Persistência genérica (usada pelos módulos novos) ────────────────────────
+
+# --- role decorator helper
+
+def requires_roles(*allowed_roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            if not g.get('user'):
+                return redirect(url_for('login', next=request.path))
+            role = (g.user.get('role') or '') if g.user else ''
+            if role == 'Admin' or (role in allowed_roles):
+                return f(*args, **kwargs)
+            flash('Acesso negado: você não tem permissão para acessar esta área.')
+            return redirect(url_for('home'))
+        return wrapped
+    return decorator
+
 
 def init_db():
     """Initialize SQLite database and tables used by the app when USE_SQLITE is enabled.
@@ -189,10 +207,19 @@ def init_db():
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE,
             password_hash TEXT,
+            role TEXT,
             created_at TEXT
         )
         """
     )
+    # For older DBs, ensure role column exists
+    try:
+        cur.execute("PRAGMA table_info(usuarios)")
+        cols = [r[1] for r in cur.fetchall()]
+        if 'role' not in cols:
+            cur.execute("ALTER TABLE usuarios ADD COLUMN role TEXT")
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -299,7 +326,14 @@ def carregar_usuarios():
         cur.execute("SELECT * FROM usuarios ORDER BY username")
         rows = cur.fetchall()
         conn.close()
-        return [{"id": r["id"], "username": r["username"], "password_hash": r["password_hash"], "created_at": r["created_at"]} for r in rows]
+        return [{
+            "id": r["id"],
+            "username": r["username"],
+            "password_hash": r["password_hash"],
+            "role": r["role"] if r["role"] is not None else "",
+            "created_at": r["created_at"],
+        } for r in rows]
+    # legacy JSON fallback: each user dict may include role
     return carregar_json("usuarios.json", seed=[])
 
 
@@ -314,7 +348,10 @@ def salvar_usuarios(usuarios):
             now = datetime.now().isoformat()
             for u in usuarios:
                 _id = u.get("id") or str(uuid.uuid4())
-                cur.execute("INSERT INTO usuarios (id,username,password_hash,created_at) VALUES (?,?,?,?)", (_id, u.get("username"), u.get("password_hash"), u.get("created_at") or now))
+                cur.execute(
+                    "INSERT INTO usuarios (id,username,password_hash,role,created_at) VALUES (?,?,?,?,?)",
+                    (_id, u.get("username"), u.get("password_hash"), u.get("role") or "", u.get("created_at") or now),
+                )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -334,7 +371,13 @@ def encontrar_usuario_por_username(username):
         cur.execute("SELECT * FROM usuarios WHERE username=?", (username,))
         r = cur.fetchone()
         conn.close()
-        return {"id": r["id"], "username": r["username"], "password_hash": r["password_hash"], "created_at": r["created_at"]} if r else None
+        return {
+            "id": r["id"],
+            "username": r["username"],
+            "password_hash": r["password_hash"],
+            "role": r["role"] if r and r["role"] is not None else "",
+            "created_at": r["created_at"],
+        } if r else None
 
     usuarios = carregar_usuarios()
     for u in usuarios:
@@ -353,7 +396,7 @@ def criar_usuario_padrao_se_necessario():
         if cnt == 0:
             senha = os.environ.get("ADMIN_PASSWORD", "admin")
             uid = str(uuid.uuid4())
-            cur.execute("INSERT INTO usuarios (id,username,password_hash,created_at) VALUES (?,?,?,?)", (uid, 'admin', generate_password_hash(senha), datetime.now().isoformat()))
+            cur.execute("INSERT INTO usuarios (id,username,password_hash,role,created_at) VALUES (?,?,?,?,?)", (uid, 'admin', generate_password_hash(senha), 'Admin', datetime.now().isoformat()))
             conn.commit()
         conn.close()
         return
@@ -365,6 +408,7 @@ def criar_usuario_padrao_se_necessario():
             "id": str(uuid.uuid4()),
             "username": "admin",
             "password_hash": generate_password_hash(senha),
+            "role": 'Admin',
             "created_at": datetime.now().isoformat(),
         }
         usuarios.append(usuario)
@@ -415,16 +459,67 @@ if os.environ.get('RECREATE_DB', '').lower() in ('1','true','yes'):
     recreate_db_with_admin_forced()
 
 
+ROLE_PERMISSIONS = {
+    # endpoint_name: allowed_roles (Admin always allowed)
+    'financeiro': ['Financeiro'],
+    'financeiro_despesa': ['Financeiro'],
+    'financeiro_despesa_excluir': ['Financeiro'],
+    'estoque': ['Estoque'],
+    'adicionar': ['Estoque'],
+    'estoque_entrada': ['Estoque'],
+    'estoque_excluir': ['Estoque'],
+    'baixa': ['Estoque'],
+    'sobras': ['Estoque'],
+    'sobra_novo': ['Estoque'],
+    'sobra_reaproveitar': ['Estoque'],
+    'sobra_descartar': ['Estoque'],
+    'sobra_excluir': ['Estoque'],
+    'pedidos': ['Vendas','Producao'],
+    'pedido_excluir': ['Vendas','Producao'],
+    'pedido_status': ['Vendas','Producao'],
+    'alertas': ['Relatorios','Financeiro','Estoque'],
+    'exportar_financeiro_pdf': ['Financeiro','Relatorios'],
+    'exportar_tudo_xlsx': ['Relatorios','Financeiro'],
+    'exportar_tudo': ['Relatorios','Financeiro'],
+    'usuarios': ['Admin'],
+    'usuarios_novo': ['Admin'],
+    'usuarios_excluir': ['Admin'],
+}
+
 @app.before_request
 def require_login():
     # Allow these endpoints unauthenticated
-    allowed = {"login", "static", "home", "exportar", "em_construcao"}
+    allowed = {"login", "static", "home", "em_construcao"}
     if request.endpoint is None:
         return
     if request.endpoint in allowed:
         return
+    # load user into g for template access and role checks
     if session.get("user_id"):
-        g.user = session.get("user_id")
+        user_id = session.get("user_id")
+        # try to find user by id
+        user = None
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM usuarios WHERE id=?", (user_id,))
+            r = cur.fetchone()
+            conn.close()
+            if r:
+                user = {"id": r["id"], "username": r["username"], "role": r["role"] if r["role"] is not None else ""}
+        else:
+            usuarios = carregar_usuarios()
+            user = next((u for u in usuarios if u.get("id") == user_id), None)
+        g.user = user
+        # Role based access control: if endpoint has permissions defined, enforce
+        allowed_roles = ROLE_PERMISSIONS.get(request.endpoint)
+        if allowed_roles:
+            user_role = (g.user.get('role') or '') if g.user else ''
+            if 'Admin' not in (user_role, ) and user_role not in allowed_roles:
+                flash('Acesso negado: você não tem permissão para acessar esta área.')
+                return redirect(url_for('home'))
         return
     return redirect(url_for("login", next=request.path))
 
@@ -462,19 +557,75 @@ def logout():
     return redirect(url_for("login"))
 
 
+# Minha conta (trocar senha)
+@app.route('/minha-conta', methods=['GET','POST'])
+def minha_conta():
+    if not g.get('user'):
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        current = request.form.get('current_password','')
+        new = request.form.get('new_password','')
+        new2 = request.form.get('new_password2','')
+        if new != new2:
+            flash('Novas senhas não conferem.')
+            return redirect(url_for('minha_conta'))
+        user = encontrar_usuario_por_username(g.user.get('username'))
+        if not user:
+            flash('Usuário não encontrado.')
+            return redirect(url_for('login'))
+        stored = user.get('password_hash','')
+        ok = False
+        if stored.startswith('PLAIN:'):
+            ok = (stored[len('PLAIN:'):] == current)
+        else:
+            ok = check_password_hash(stored, current)
+        if not ok:
+            flash('Senha atual inválida.')
+            return redirect(url_for('minha_conta'))
+        # update password
+        new_hash = generate_password_hash(new)
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute('UPDATE usuarios SET password_hash=? WHERE id=?', (new_hash, g.user.get('id')))
+            conn.commit()
+            conn.close()
+        else:
+            usuarios = carregar_usuarios()
+            for u in usuarios:
+                if u.get('id') == g.user.get('id'):
+                    u['password_hash'] = new_hash
+            salvar_usuarios(usuarios)
+        flash('Senha alterada com sucesso.')
+        return redirect(url_for('home'))
+    return render_template('minha_conta.html')
+
+
 # ── Usuários (admin) ──────────────────────────────────────────────────────────
 @app.route("/usuarios")
+@requires_roles('Admin')
 def usuarios():
+    # only admin may list users
+    if not (g.get('user') and g.user.get('role') == 'Admin'):
+        flash('Acesso negado.')
+        return redirect(url_for('home'))
     usuarios = carregar_usuarios()
     return render_template("usuarios.html", usuarios=usuarios)
 
 
-@app.route("/usuarios/novo", methods=["GET", "POST"]) 
+@app.route("/usuarios/novo", methods=["GET", "POST"])\n@requires_roles('Admin') 
 def usuarios_novo():
+    # only admin may create users
+    if not (g.get('user') and g.user.get('role') == 'Admin'):
+        flash('Acesso negado.')
+        return redirect(url_for('home'))
+
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         password2 = request.form.get("password2", "")
+        role = request.form.get("role", "")
 
         if not username or not password:
             flash("Nome de usuário e senha são obrigatórios.")
@@ -496,7 +647,7 @@ def usuarios_novo():
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             try:
-                cur.execute("INSERT INTO usuarios (id,username,password_hash,created_at) VALUES (?,?,?,?)", (uid, username, password_hash, now))
+                cur.execute("INSERT INTO usuarios (id,username,password_hash,role,created_at) VALUES (?,?,?,?,?)", (uid, username, password_hash, role, now))
                 conn.commit()
             except Exception as e:
                 conn.rollback()
@@ -510,6 +661,7 @@ def usuarios_novo():
                 'id': uid,
                 'username': username,
                 'password_hash': password_hash,
+                'role': role,
                 'created_at': now,
             })
             salvar_usuarios(usuarios)
@@ -521,7 +673,13 @@ def usuarios_novo():
 
 
 @app.route('/usuarios/<user_id>/excluir', methods=['POST'])
+@requires_roles('Admin')
 def usuarios_excluir(user_id):
+    # only admin can remove users
+    if not (g.get('user') and g.user.get('role') == 'Admin'):
+        flash('Acesso negado.')
+        return redirect(url_for('home'))
+
     # Prevent removing the last user accidentally
     usuarios = carregar_usuarios()
     if len(usuarios) <= 1:
@@ -545,6 +703,63 @@ def usuarios_excluir(user_id):
 
     flash('Usuário removido.')
     return redirect(url_for('usuarios'))
+
+
+# Edit user (role, optional password)
+@app.route('/usuarios/<user_id>/editar', methods=['GET','POST'])
+@requires_roles('Admin')
+def usuarios_editar(user_id):
+    if not (g.get('user') and g.user.get('role') == 'Admin'):
+        flash('Acesso negado.')
+        return redirect(url_for('home'))
+
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM usuarios WHERE id=?', (user_id,))
+        r = cur.fetchone()
+        conn.close()
+        if not r:
+            flash('Usuário não encontrado.')
+            return redirect(url_for('usuarios'))
+        usuario = {"id": r['id'], 'username': r['username'], 'role': r['role']}
+    else:
+        usuarios = carregar_usuarios()
+        usuario = next((u for u in usuarios if u.get('id') == user_id), None)
+        if not usuario:
+            flash('Usuário não encontrado.')
+            return redirect(url_for('usuarios'))
+
+    if request.method == 'POST':
+        role = request.form.get('role','')
+        new_pwd = request.form.get('password','')
+        if USE_SQLITE:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            try:
+                if new_pwd:
+                    cur.execute('UPDATE usuarios SET role=?, password_hash=?, updated_at=? WHERE id=?', (role, generate_password_hash(new_pwd), datetime.now().isoformat(), user_id))
+                else:
+                    cur.execute('UPDATE usuarios SET role=?, updated_at=? WHERE id=?', (role, datetime.now().isoformat(), user_id))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+            finally:
+                conn.close()
+        else:
+            usuarios = carregar_usuarios()
+            for u in usuarios:
+                if u.get('id') == user_id:
+                    u['role'] = role
+                    if new_pwd:
+                        u['password_hash'] = generate_password_hash(new_pwd)
+            salvar_usuarios(usuarios)
+        flash('Usuário atualizado.')
+        return redirect(url_for('usuarios'))
+
+    return render_template('usuario_edit.html', usuario=usuario)
 
 
 # ── Materiais (estoque) ───────────────────────────────────────────────────────
@@ -686,6 +901,7 @@ def home():
 
 
 @app.route("/estoque")
+@requires_roles('Estoque')
 def estoque():
     materiais = carregar_materiais()
     cat = request.args.get("cat", "Todos")
@@ -711,7 +927,7 @@ def estoque():
     )
 
 
-@app.route("/estoque/<material_id>/entrada", methods=["POST"])
+@app.route("/estoque/<material_id>/entrada", methods=["POST"])\n@requires_roles('Estoque')
 def estoque_entrada(material_id):
     materiais = carregar_materiais()
     m = encontrar(materiais, material_id)
@@ -729,7 +945,7 @@ def estoque_entrada(material_id):
     return redirect(url_for("estoque"))
 
 
-@app.route("/estoque/<material_id>/excluir", methods=["POST"])
+@app.route("/estoque/<material_id>/excluir", methods=["POST"])\n@requires_roles('Estoque')
 def estoque_excluir(material_id):
     # Remove material and its photo (if present). Works with JSON or SQLite backend.
     if USE_SQLITE:
@@ -767,7 +983,7 @@ def estoque_excluir(material_id):
     return redirect(url_for("estoque"))
 
 
-@app.route("/adicionar", methods=["GET", "POST"])
+@app.route("/adicionar", methods=["GET", "POST"])\n@requires_roles('Estoque')
 def adicionar():
     materiais = carregar_materiais()
 
@@ -847,7 +1063,7 @@ def adicionar():
     )
 
 
-@app.route("/baixa", methods=["GET", "POST"])
+@app.route("/baixa", methods=["GET", "POST"])\n@requires_roles('Estoque')
 def baixa():
     materiais = carregar_materiais()
 
@@ -954,6 +1170,7 @@ def calcular_produto(produto, mat_map):
 
 
 @app.route("/produtos")
+@requires_roles('Producao','Vendas')
 def produtos():
     lista = carregar_produtos()
     mat_map = {m["id"]: m for m in carregar_materiais()}
@@ -961,7 +1178,7 @@ def produtos():
     return render_template("produtos.html", produtos=produtos_calc)
 
 
-@app.route("/produtos/novo", methods=["GET", "POST"])
+@app.route("/produtos/novo", methods=["GET", "POST"])\n@requires_roles('Producao','Vendas')
 def produto_novo():
     materiais = carregar_materiais()
 
@@ -1006,7 +1223,7 @@ def produto_novo():
     return render_template("produto_form.html", materiais=materiais, emojis=EMOJIS_PRODUTO)
 
 
-@app.route("/produtos/<produto_id>/excluir", methods=["POST"])
+@app.route("/produtos/<produto_id>/excluir", methods=["POST"])\n@requires_roles('Producao','Vendas')
 def produto_excluir(produto_id):
     produtos_lista = carregar_produtos()
     produtos_lista = [p for p in produtos_lista if p["id"] != produto_id]
@@ -1017,6 +1234,7 @@ def produto_excluir(produto_id):
 
 # ── Pedidos dos Clientes ──────────────────────────────────────────────────────
 @app.route("/pedidos")
+@requires_roles('Vendas','Producao')
 def pedidos():
     if USE_SQLITE:
         init_db()
@@ -1051,7 +1269,7 @@ def pedidos():
                             status_badge=STATUS_PEDIDO_BADGE)
 
 
-@app.route("/pedidos/novo", methods=["GET", "POST"])
+@app.route("/pedidos/novo", methods=["GET", "POST"])\n@requires_roles('Vendas')
 def pedido_novo():
     produtos_lista = carregar_produtos() if USE_SQLITE else carregar_json("produtos.json")
 
@@ -1108,7 +1326,7 @@ def pedido_novo():
     return render_template("pedido_form.html", produtos=produtos_lista)
 
 
-@app.route("/pedidos/<pedido_id>/status", methods=["POST"])
+@app.route("/pedidos/<pedido_id>/status", methods=["POST"])\n@requires_roles('Vendas','Producao')
 def pedido_status(pedido_id):
     novo_status = request.form.get("status", "")
     if novo_status not in STATUS_PEDIDO:
@@ -1202,7 +1420,7 @@ def pedido_status(pedido_id):
     return redirect(url_for("pedidos"))
 
 
-@app.route("/pedidos/<pedido_id>/excluir", methods=["POST"])
+@app.route("/pedidos/<pedido_id>/excluir", methods=["POST"])\n@requires_roles('Vendas','Producao')
 def pedido_excluir(pedido_id):
     if USE_SQLITE:
         init_db()
@@ -1223,6 +1441,7 @@ def pedido_excluir(pedido_id):
 
 # ── Sobras e Reaproveitamento ──────────────────────────────────────────────────
 @app.route("/sobras")
+@requires_roles('Estoque')
 def sobras():
     if USE_SQLITE:
         init_db()
@@ -1249,7 +1468,7 @@ def sobras():
     return render_template("sobras.html", sobras=list(reversed(lista)), status_badge=STATUS_SOBRA_BADGE)
 
 
-@app.route("/sobras/novo", methods=["GET", "POST"])
+@app.route("/sobras/novo", methods=["GET", "POST"])\n@requires_roles('Estoque')
 def sobra_novo():
     materiais = carregar_materiais()
 
@@ -1296,7 +1515,7 @@ def sobra_novo():
     return render_template("sobra_form.html", materiais=materiais)
 
 
-@app.route("/sobras/<sobra_id>/reaproveitar", methods=["POST"])
+@app.route("/sobras/<sobra_id>/reaproveitar", methods=["POST"])\n@requires_roles('Estoque')
 def sobra_reaproveitar(sobra_id):
     if USE_SQLITE:
         init_db()
@@ -1338,7 +1557,7 @@ def sobra_reaproveitar(sobra_id):
     return redirect(url_for("sobras"))
 
 
-@app.route("/sobras/<sobra_id>/descartar", methods=["POST"])
+@app.route("/sobras/<sobra_id>/descartar", methods=["POST"])\n@requires_roles('Estoque')
 def sobra_descartar(sobra_id):
     if USE_SQLITE:
         init_db()
@@ -1362,7 +1581,7 @@ def sobra_descartar(sobra_id):
     return redirect(url_for("sobras"))
 
 
-@app.route("/sobras/<sobra_id>/excluir", methods=["POST"])
+@app.route("/sobras/<sobra_id>/excluir", methods=["POST"])\n@requires_roles('Estoque')
 def sobra_excluir(sobra_id):
     if USE_SQLITE:
         init_db()
@@ -1383,6 +1602,7 @@ def sobra_excluir(sobra_id):
 
 # ── Financeiro ─────────────────────────────────────────────────────────────────
 @app.route("/financeiro")
+@requires_roles('Financeiro','Relatorios')
 def financeiro():
     materiais = carregar_materiais()
     valor_estoque = round(sum(m["quantidade"] * m["custo"] for m in materiais), 2)
@@ -1443,7 +1663,7 @@ def financeiro():
     )
 
 
-@app.route("/financeiro/despesa", methods=["POST"])
+@app.route("/financeiro/despesa", methods=["POST"])\n@requires_roles('Financeiro')
 def financeiro_despesa():
     descricao = request.form.get("descricao", "").strip()
     try:
@@ -1481,7 +1701,7 @@ def financeiro_despesa():
     return redirect(url_for("financeiro"))
 
 
-@app.route("/financeiro/despesa/<despesa_id>/excluir", methods=["POST"])
+@app.route("/financeiro/despesa/<despesa_id>/excluir", methods=["POST"])\n@requires_roles('Financeiro')
 def financeiro_despesa_excluir(despesa_id):
     if USE_SQLITE:
         init_db()
@@ -1502,6 +1722,7 @@ def financeiro_despesa_excluir(despesa_id):
 
 # ── Alertas e Relatórios ───────────────────────────────────────────────────────
 @app.route("/alertas")
+@requires_roles('Relatorios','Financeiro','Estoque')
 def alertas():
     materiais = carregar_materiais()
     baixo_estoque = sorted(
@@ -1562,6 +1783,7 @@ def uploaded_file(filename):
 
 # Exportar todos os dados (backup)
 @app.route("/exportar")
+@requires_roles('Relatorios','Financeiro')
 def exportar_tudo():
     colecoes = [
         "materiais.json",
@@ -1582,6 +1804,7 @@ def exportar_tudo():
 
 # Exportar relatório financeiro em PDF
 @app.route('/exportar/pdf')
+@requires_roles('Relatorios','Financeiro')
 def exportar_financeiro_pdf():
     try:
         from io import BytesIO
@@ -1669,6 +1892,7 @@ def exportar_financeiro_pdf():
 
 # Exportar todos em Excel (XLSX)
 @app.route('/exportar/xlsx')
+@requires_roles('Relatorios','Financeiro')
 def exportar_tudo_xlsx():
     try:
         from io import BytesIO

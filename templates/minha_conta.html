@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Minha Conta" %}
+{% block conteudo %}
+
+<h3 class="font-serif">Minha Conta</h3>
+<form method="post" action="{{ url_for('minha_conta') }}" style="margin-top:12px; max-width:420px;">
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Usuário</label>
+    <input value="{{ g.user.username }}" readonly class="input-vintage">
+  </div>
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Senha atual</label>
+    <input name="current_password" type="password" required class="input-vintage">
+  </div>
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Nova senha</label>
+    <input name="new_password" type="password" required class="input-vintage">
+  </div>
+  <div style="margin-bottom:12px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Confirmar nova senha</label>
+    <input name="new_password2" type="password" required class="input-vintage">
+  </div>
+  <button class="btn-primary">🔒 Alterar senha</button>
+</form>
+
+{% endblock %}
