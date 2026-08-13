@@ -151,6 +151,16 @@
       letter-spacing: .3px;
     }
 
+    /* Layout wrapper for main content to allow responsive widths */
+    .main-content {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px 20px 60px;
+    }
+    @media (min-width:900px) {
+      .main-content { max-width: calc(100% - 280px); margin-right: 40px; }
+    }
+
     /* ── Botão hambúrguer ──────────────────────────────────────────────── */
     .btn-menu {
       background: rgba(255,255,255,.12);
@@ -219,3 +229,44 @@
       padding: 14px 20px 20px;
       text-align: center;
     }
+
+/* Desktop layout: keep drawer visible on wide screens and make content use remaining space */
+@media (min-width: 900px) {
+  /* Make drawer fixed and narrower */
+  #drawer {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 220px;
+    max-width: none;
+    transform: none;
+    box-shadow: none;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+  }
+  #drawer.open { transform: none; }
+  #drawer-overlay { display: none; }
+  .btn-menu { display: none; }
+
+  main {
+    margin-left: 240px; /* space for drawer */
+    max-width: calc(100% - 260px);
+    padding: 32px;
+  }
+
+  /* Make primary buttons inline on desktop */
+  .btn-primary { width: auto; display: inline-block; min-width: 140px; padding: 12px 18px; }
+  .btn-ghost, .btn-secondary { display: inline-flex; }
+
+  /* Drawer links use column layout but compact */
+  #drawer .drawer-link { font-size: 15px; padding: 10px 14px; border-radius:8px; }
+
+  /* Cards slightly changed */
+  .card { border-radius: 12px; }
+
+  /* Larger container width for lists */
+  .input-vintage { max-width: 420px; }
+
+  /* Make forms appear side-by-side where specified using existing grid rules */
+}
