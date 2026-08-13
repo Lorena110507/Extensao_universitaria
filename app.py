@@ -694,7 +694,8 @@ def usuarios():
     return render_template("usuarios.html", usuarios=usuarios)
 
 
-@app.route("/usuarios/novo", methods=["GET", "POST"])\n@requires_roles('Admin') 
+@app.route("/usuarios/novo", methods=["GET", "POST"])
+@requires_roles('Admin')
 def usuarios_novo():
     # only admin may create users
     if not (g.get('user') and g.user.get('role') == 'Admin'):
@@ -1088,7 +1089,8 @@ def estoque():
     )
 
 
-@app.route("/estoque/<material_id>/entrada", methods=["POST"])\n@requires_roles('Estoque')
+@app.route("/estoque/<material_id>/entrada", methods=["POST"])
+@requires_roles('Estoque')
 def estoque_entrada(material_id):
     materiais = carregar_materiais()
     m = encontrar(materiais, material_id)
@@ -1106,7 +1108,8 @@ def estoque_entrada(material_id):
     return redirect(url_for("estoque"))
 
 
-@app.route("/estoque/<material_id>/excluir", methods=["POST"])\n@requires_roles('Estoque')
+@app.route("/estoque/<material_id>/excluir", methods=["POST"])
+@requires_roles('Estoque')
 def estoque_excluir(material_id):
     # Remove material and its photo (if present). Works with JSON or SQLite backend.
     if USE_SQLITE:
@@ -1144,7 +1147,8 @@ def estoque_excluir(material_id):
     return redirect(url_for("estoque"))
 
 
-@app.route("/adicionar", methods=["GET", "POST"])\n@requires_roles('Estoque')
+@app.route("/adicionar", methods=["GET", "POST"])
+@requires_roles('Estoque')
 def adicionar():
     materiais = carregar_materiais()
 
@@ -1224,7 +1228,8 @@ def adicionar():
     )
 
 
-@app.route("/baixa", methods=["GET", "POST"])\n@requires_roles('Estoque')
+@app.route("/baixa", methods=["GET", "POST"])
+@requires_roles('Estoque')
 def baixa():
     materiais = carregar_materiais()
 
@@ -1339,7 +1344,8 @@ def produtos():
     return render_template("produtos.html", produtos=produtos_calc)
 
 
-@app.route("/produtos/novo", methods=["GET", "POST"])\n@requires_roles('Producao','Vendas')
+@app.route("/produtos/novo", methods=["GET", "POST"])
+@requires_roles('Producao','Vendas')
 def produto_novo():
     materiais = carregar_materiais()
 
@@ -1384,7 +1390,8 @@ def produto_novo():
     return render_template("produto_form.html", materiais=materiais, emojis=EMOJIS_PRODUTO)
 
 
-@app.route("/produtos/<produto_id>/excluir", methods=["POST"])\n@requires_roles('Producao','Vendas')
+@app.route("/produtos/<produto_id>/excluir", methods=["POST"])
+@requires_roles('Producao','Vendas')
 def produto_excluir(produto_id):
     produtos_lista = carregar_produtos()
     produtos_lista = [p for p in produtos_lista if p["id"] != produto_id]
@@ -1430,7 +1437,8 @@ def pedidos():
                             status_badge=STATUS_PEDIDO_BADGE)
 
 
-@app.route("/pedidos/novo", methods=["GET", "POST"])\n@requires_roles('Vendas')
+@app.route("/pedidos/novo", methods=["GET", "POST"])
+@requires_roles('Vendas')
 def pedido_novo():
     produtos_lista = carregar_produtos() if USE_SQLITE else carregar_json("produtos.json")
 
@@ -1487,7 +1495,8 @@ def pedido_novo():
     return render_template("pedido_form.html", produtos=produtos_lista)
 
 
-@app.route("/pedidos/<pedido_id>/status", methods=["POST"])\n@requires_roles('Vendas','Producao')
+@app.route("/pedidos/<pedido_id>/status", methods=["POST"])
+@requires_roles('Vendas','Producao')
 def pedido_status(pedido_id):
     novo_status = request.form.get("status", "")
     if novo_status not in STATUS_PEDIDO:
@@ -1581,7 +1590,8 @@ def pedido_status(pedido_id):
     return redirect(url_for("pedidos"))
 
 
-@app.route("/pedidos/<pedido_id>/excluir", methods=["POST"])\n@requires_roles('Vendas','Producao')
+@app.route("/pedidos/<pedido_id>/excluir", methods=["POST"])
+@requires_roles('Vendas','Producao')
 def pedido_excluir(pedido_id):
     if USE_SQLITE:
         init_db()
@@ -1629,7 +1639,8 @@ def sobras():
     return render_template("sobras.html", sobras=list(reversed(lista)), status_badge=STATUS_SOBRA_BADGE)
 
 
-@app.route("/sobras/novo", methods=["GET", "POST"])\n@requires_roles('Estoque')
+@app.route("/sobras/novo", methods=["GET", "POST"])
+@requires_roles('Estoque')
 def sobra_novo():
     materiais = carregar_materiais()
 
@@ -1676,7 +1687,8 @@ def sobra_novo():
     return render_template("sobra_form.html", materiais=materiais)
 
 
-@app.route("/sobras/<sobra_id>/reaproveitar", methods=["POST"])\n@requires_roles('Estoque')
+@app.route("/sobras/<sobra_id>/reaproveitar", methods=["POST"])
+@requires_roles('Estoque')
 def sobra_reaproveitar(sobra_id):
     if USE_SQLITE:
         init_db()
@@ -1718,7 +1730,8 @@ def sobra_reaproveitar(sobra_id):
     return redirect(url_for("sobras"))
 
 
-@app.route("/sobras/<sobra_id>/descartar", methods=["POST"])\n@requires_roles('Estoque')
+@app.route("/sobras/<sobra_id>/descartar", methods=["POST"])
+@requires_roles('Estoque')
 def sobra_descartar(sobra_id):
     if USE_SQLITE:
         init_db()
@@ -1742,7 +1755,8 @@ def sobra_descartar(sobra_id):
     return redirect(url_for("sobras"))
 
 
-@app.route("/sobras/<sobra_id>/excluir", methods=["POST"])\n@requires_roles('Estoque')
+@app.route("/sobras/<sobra_id>/excluir", methods=["POST"])
+@requires_roles('Estoque')
 def sobra_excluir(sobra_id):
     if USE_SQLITE:
         init_db()
@@ -1824,7 +1838,8 @@ def financeiro():
     )
 
 
-@app.route("/financeiro/despesa", methods=["POST"])\n@requires_roles('Financeiro')
+@app.route("/financeiro/despesa", methods=["POST"])
+@requires_roles('Financeiro')
 def financeiro_despesa():
     descricao = request.form.get("descricao", "").strip()
     try:
@@ -1862,7 +1877,8 @@ def financeiro_despesa():
     return redirect(url_for("financeiro"))
 
 
-@app.route("/financeiro/despesa/<despesa_id>/excluir", methods=["POST"])\n@requires_roles('Financeiro')
+@app.route("/financeiro/despesa/<despesa_id>/excluir", methods=["POST"])
+@requires_roles('Financeiro')
 def financeiro_despesa_excluir(despesa_id):
     if USE_SQLITE:
         init_db()
