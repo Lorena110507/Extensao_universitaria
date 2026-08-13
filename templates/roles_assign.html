@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Atribuir Papéis" %}
+{% block conteudo %}
+
+<h3>Atribuir papéis a usuários</h3>
+<p>Selecione o papel desejado para cada usuário e clique em Salvar. Usuários alterados precisarão relogar para aplicar as novas permissões.</p>
+
+<form method="post">
+  <table style="width:100%; border-collapse:collapse; margin-top:12px;">
+    <thead><tr><th>Usuário</th><th>Papel atual</th><th>Novo papel</th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.username }}</td>
+        <td>{{ u.role or '-' }}</td>
+        <td>
+          <select name="role_{{ u.id }}">
+            <option value="">(nenhum)</option>
+            {% for r in roles %}
+              <option value="{{ r }}" {% if r==u.role %}selected{% endif %}>{{ r }}</option>
+            {% endfor %}
+          </select>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div style="margin-top:12px;">
+    <button class="btn-primary">Salvar</button>
+    <a href="{{ url_for('roles') }}" class="btn-ghost">Cancelar</a>
+  </div>
+</form>
+
+{% endblock %}

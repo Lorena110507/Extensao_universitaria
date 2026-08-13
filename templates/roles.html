@@ -4,6 +4,10 @@
 
 <h3>Permissões por Papel</h3>
 <p>Adicione uma entrada para um recurso específico e marque as ações permitidas (Create/Read/Update/Delete).</p>
+<div style="display:flex; gap:8px; margin-bottom:12px;">
+  <a href="{{ url_for('roles_assign') }}" class="btn-primary">👥 Atribuir Usuários</a>
+  <a href="{{ url_for('roles_editar', role='Admin') }}" class="btn-ghost">✏️ Editar role Admin</a>
+</div>
 
 {% if roles %}
   {% for role, entries in roles.items() %}

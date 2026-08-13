@@ -250,16 +250,19 @@ def init_db():
             username TEXT UNIQUE,
             password_hash TEXT,
             role TEXT,
-            created_at TEXT
+            created_at TEXT,
+            session_version INTEGER DEFAULT 0
         )
         """
     )
-    # For older DBs, ensure role column exists
+    # For older DBs, ensure role and session_version columns exist
     try:
         cur.execute("PRAGMA table_info(usuarios)")
         cols = [r[1] for r in cur.fetchall()]
         if 'role' not in cols:
             cur.execute("ALTER TABLE usuarios ADD COLUMN role TEXT")
+        if 'session_version' not in cols:
+            cur.execute("ALTER TABLE usuarios ADD COLUMN session_version INTEGER DEFAULT 0")
     except Exception:
         pass
 
@@ -405,9 +408,15 @@ def carregar_usuarios():
             "password_hash": r["password_hash"],
             "role": r["role"] if r["role"] is not None else "",
             "created_at": r["created_at"],
+            "session_version": r["session_version"] if ("session_version" in r.keys()) else 0,
         } for r in rows]
     # legacy JSON fallback: each user dict may include role
-    return carregar_json("usuarios.json", seed=[])
+    users = carregar_json("usuarios.json", seed=[])
+    # ensure session_version present
+    for u in users:
+        if 'session_version' not in u:
+            u['session_version'] = 0
+    return users
 
 
 def salvar_usuarios(usuarios):
@@ -450,6 +459,7 @@ def encontrar_usuario_por_username(username):
             "password_hash": r["password_hash"],
             "role": r["role"] if r and r["role"] is not None else "",
             "created_at": r["created_at"],
+            "session_version": r["session_version"] if r and ("session_version" in r.keys()) else 0,
         } if r else None
 
     usuarios = carregar_usuarios()
@@ -582,10 +592,19 @@ def require_login():
             r = cur.fetchone()
             conn.close()
             if r:
-                user = {"id": r["id"], "username": r["username"], "role": r["role"] if r["role"] is not None else ""}
+                user = {"id": r["id"], "username": r["username"], "role": r["role"] if r["role"] is not None else "", "session_version": r["session_version"] if ("session_version" in r.keys()) else 0}
         else:
             usuarios = carregar_usuarios()
             user = next((u for u in usuarios if u.get("id") == user_id), None)
+        # session invalidation: compare session_version stored in session with DB; if mismatch, force logout
+        db_ver = (user.get('session_version') if user else 0)
+        sess_ver = session.get('session_version')
+        if sess_ver is None or sess_ver != db_ver:
+            # expire session
+            session.pop('user_id', None)
+            session.pop('session_version', None)
+            flash('Sessão expirada. Por favor faça login novamente.')
+            return redirect(url_for('login'))
         g.user = user
         # Role based access control: if endpoint has permissions defined, enforce
         allowed_roles = ROLE_PERMISSIONS.get(request.endpoint)
@@ -610,12 +629,15 @@ def login():
             if stored.startswith('PLAIN:'):
                 if stored[len('PLAIN:'):] == senha:
                     session["user_id"] = user["id"]
+                    # persist session version to allow server-side invalidation
+                    session['session_version'] = user.get('session_version', 0) if isinstance(user, dict) else 0
                     flash("Autenticado com sucesso.")
                     nxt = request.args.get("next") or url_for("home")
                     return redirect(nxt)
             else:
                 if check_password_hash(stored, senha):
                     session["user_id"] = user["id"]
+                    session['session_version'] = user.get('session_version', 0) if isinstance(user, dict) else 0
                     flash("Autenticado com sucesso.")
                     nxt = request.args.get("next") or url_for("home")
                     return redirect(nxt)
@@ -835,10 +857,18 @@ def usuarios_editar(user_id):
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             try:
+                # bump session_version when role changes so active sessions are invalidated
+                old_role = usuario.get('role') if usuario else ''
                 if new_pwd:
-                    cur.execute('UPDATE usuarios SET role=?, password_hash=?, updated_at=? WHERE id=?', (role, generate_password_hash(new_pwd), datetime.now().isoformat(), user_id))
+                    if role != old_role:
+                        cur.execute('UPDATE usuarios SET role=?, password_hash=?, updated_at=?, session_version=COALESCE(session_version,0)+1 WHERE id=?', (role, generate_password_hash(new_pwd), datetime.now().isoformat(), user_id))
+                    else:
+                        cur.execute('UPDATE usuarios SET role=?, password_hash=?, updated_at=? WHERE id=?', (role, generate_password_hash(new_pwd), datetime.now().isoformat(), user_id))
                 else:
-                    cur.execute('UPDATE usuarios SET role=?, updated_at=? WHERE id=?', (role, datetime.now().isoformat(), user_id))
+                    if role != old_role:
+                        cur.execute('UPDATE usuarios SET role=?, updated_at=?, session_version=COALESCE(session_version,0)+1 WHERE id=?', (role, datetime.now().isoformat(), user_id))
+                    else:
+                        cur.execute('UPDATE usuarios SET role=?, updated_at=? WHERE id=?', (role, datetime.now().isoformat(), user_id))
                 conn.commit()
                 # audit log: who updated this user (role/password)
                 try:
@@ -923,6 +953,75 @@ def roles_editar(role):
     conn.close()
     entries = [{'resource':r[1],'can_create':r[2],'can_read':r[3],'can_update':r[4],'can_delete':r[5]} for r in rows]
     return render_template('role_form.html', role=role, entries=entries)
+
+
+@app.route('/roles/assign', methods=['GET','POST'])
+@requires_roles('Admin')
+def roles_assign():
+    """Bulk assign users to roles. Admin-only."""
+    if not (g.get('user') and g.user.get('role') == 'Admin'):
+        flash('Acesso negado.')
+        return redirect(url_for('home'))
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    roles_set = set()
+    try:
+        cur.execute("SELECT DISTINCT role FROM role_permissions")
+        for r in cur.fetchall():
+            if r and r[0]:
+                roles_set.add(r[0])
+    except Exception:
+        pass
+    try:
+        cur.execute("SELECT DISTINCT role FROM usuarios")
+        for r in cur.fetchall():
+            if r and r[0]:
+                roles_set.add(r[0])
+    except Exception:
+        pass
+    for default_role in ['Admin','Financeiro','Estoque','Vendas','Producao','Relatorios']:
+        roles_set.add(default_role)
+    roles = sorted(list(roles_set))
+
+    users = []
+    try:
+        cur.execute("SELECT id, username, role FROM usuarios ORDER BY username")
+        for row in cur.fetchall():
+            users.append({'id': row[0], 'username': row[1], 'role': row[2] or ''})
+    except Exception:
+        pass
+
+    if request.method == 'POST':
+        try:
+            changed = 0
+            for u in users:
+                new_role = (request.form.get('role_' + u['id'], '') or '').strip()
+                old_role = (u.get('role') or '')
+                if new_role != old_role:
+                    # update and bump session_version so user is forced to re-login
+                    cur.execute("UPDATE usuarios SET role=?, updated_at=?, session_version=COALESCE(session_version,0)+1 WHERE id=?", (new_role or '', datetime.now().isoformat(), u['id']))
+                    conn.commit()
+                    changed += 1
+                    try:
+                        cur.execute("INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?,?,?,?,?,?,?)",
+                                    (str(uuid.uuid4()), session.get('user_id'), g.user.get('username') if g.get('user') else None, u['id'], 'assign_role', f'role={new_role}', datetime.now().isoformat()))
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+            if changed:
+                flash('Atribuições atualizadas. Usuários modificados foram desconectados e precisarão relogar para aplicar novas permissões.')
+            else:
+                flash('Nenhuma alteração nas atribuições.')
+        except Exception as e:
+            conn.rollback()
+            flash('Erro ao atualizar atribuições: ' + str(e))
+        finally:
+            conn.close()
+        return redirect(url_for('roles'))
+
+    conn.close()
+    return render_template('roles_assign.html', users=users, roles=roles)
 
 
 # ── Materiais (estoque) ───────────────────────────────────────────────────────
