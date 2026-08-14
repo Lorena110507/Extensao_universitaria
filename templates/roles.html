@@ -7,7 +7,15 @@
 <div style="display:flex; gap:8px; margin-bottom:12px;">
   <a href="{{ url_for('roles_assign') }}" class="btn-primary">👥 Atribuir Usuários</a>
   <a href="{{ url_for('roles_editar', role='Admin') }}" class="btn-ghost">✏️ Editar role Admin</a>
+  <button class="btn-primary" type="button" onclick="createRole()">➕ Criar papel</button>
 </div>
+<script>
+function createRole(){
+  const name = prompt('Nome do novo papel (ex: Suporte)')?.trim();
+  if(!name) return;
+  window.location = '/roles/' + encodeURIComponent(name) + '/editar';
+}
+</script>
 
 {% if roles %}
   {% for role, entries in roles.items() %}
@@ -38,7 +46,7 @@
 
 <hr>
 <h4>Adicionar/Editar permissões para um papel</h4>
-<form method="get" action="{{ url_for('roles_editar', role='') }}" onsubmit="event.preventDefault(); window.location = '{{ url_for('roles_editar', role='') }}' + document.getElementById('role_name').value;">
+<form method="get" action="#" onsubmit="event.preventDefault(); var name = document.getElementById('role_name').value.trim(); if(!name){ alert('Informe o nome do papel'); return; } window.location = '/roles/' + encodeURIComponent(name) + '/editar';">
   <label>Nome do papel: <input id="role_name" name="role" placeholder="Financeiro" required></label>
   <button class="btn-primary" style="margin-left:8px;">Editar</button>
 </form>

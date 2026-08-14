@@ -924,6 +924,7 @@ def roles():
 
 
 @app.route('/roles/<role>/editar', methods=['GET','POST'])
+@app.route('/roles/<path:role>/editar', methods=['GET','POST'])
 @requires_roles('Admin')
 def roles_editar(role):
     init_db()
