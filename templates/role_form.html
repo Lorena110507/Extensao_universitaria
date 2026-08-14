@@ -5,18 +5,33 @@
 <h3>Editar permissões para {{ role }}</h3>
 
 <form method="post">
-  <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
-    <label style="width:200px;">Recurso (identificador)</label>
-    <input name="resource" placeholder="ex: financeiro" required style="flex:1;">
+  <p>Marque as permissões que este papel terá por recurso. Desmarcar todas remove a permissão para o recurso.</p>
+  <table style="width:100%; border-collapse:collapse; margin-bottom:12px;">
+    <thead><tr><th style="text-align:left">Recurso</th><th>Create</th><th>Read</th><th>Update</th><th>Delete</th></tr></thead>
+    <tbody>
+      {# resources é fornecido pelo backend com a lista padrão e recursos já usados #}
+      {% for res in resources %}
+      {% set res_id = res|replace(' ','_')|replace('/','_')|replace('-','_') %}
+      {% set existing = (entries|selectattr('resource','equalto',res)|list)[0] if (entries|selectattr('resource','equalto',res)|list) else None %}
+      <tr>
+        <td style="padding:6px 8px;">
+          <strong>{{ res }}</strong>
+          <div style="font-size:11px; color:var(--muted);">Identificador: {{ res }}</div>
+        </td>
+        <td style="text-align:center"><input type="checkbox" name="can_create_{{ res_id }}" {% if existing and existing.can_create %}checked{% endif %}></td>
+        <td style="text-align:center"><input type="checkbox" name="can_read_{{ res_id }}" {% if existing and existing.can_read %}checked{% endif %}></td>
+        <td style="text-align:center"><input type="checkbox" name="can_update_{{ res_id }}" {% if existing and existing.can_update %}checked{% endif %}></td>
+        <td style="text-align:center"><input type="checkbox" name="can_delete_{{ res_id }}" {% if existing and existing.can_delete %}checked{% endif %}></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div style="margin-bottom:10px;">
+    <label>Adicionar recurso personalizado: <input name="custom_resource" placeholder="ex: fornecedores"></label>
+    <button class="btn-primary" type="submit" style="margin-left:8px;">Salvar</button>
+    <a href="{{ url_for('roles') }}" class="btn-ghost">Voltar</a>
   </div>
-  <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
-    <label><input type="checkbox" name="can_create"> Create</label>
-    <label><input type="checkbox" name="can_read"> Read</label>
-    <label><input type="checkbox" name="can_update"> Update</label>
-    <label><input type="checkbox" name="can_delete"> Delete</label>
-  </div>
-  <button class="btn-primary">Salvar</button>
-  <a href="{{ url_for('roles') }}" class="btn-ghost">Voltar</a>
 </form>
 
 {% if entries %}

@@ -964,9 +964,11 @@ def roles_editar(role):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # POST: require create or update depending on whether the role already exists
+    # canonical list of top-level tabs/resources that map to app sections
+    default_resources = ['financeiro','relatorios','estoque','pedidos','usuarios','roles']
+
     if request.method == 'POST':
-        # check if role already has entries
+        # require proper permission to create/update roles
         cur.execute("SELECT COUNT(1) FROM role_permissions WHERE role=?", (role,))
         exists = (cur.fetchone()[0] > 0)
         required_action = 'update' if exists else 'create'
@@ -975,36 +977,66 @@ def roles_editar(role):
             flash('Acesso negado: você não tem permissão para modificar papéis.')
             return redirect(url_for('roles'))
 
-        resource = request.form.get('resource','').strip()
-        can_create = 1 if request.form.get('can_create') else 0
-        can_read = 1 if request.form.get('can_read') else 0
-        can_update = 1 if request.form.get('can_update') else 0
-        can_delete = 1 if request.form.get('can_delete') else 0
+        # collect resources from defaults + optional custom_resource
+        resources = list(default_resources)
+        custom = (request.form.get('custom_resource') or '').strip()
+        if custom:
+            resources.append(custom)
+
+        changed_resources = []
         now = datetime.now().isoformat()
         try:
-            cur.execute("INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete, updated_at) VALUES (?,?,?,?,?,?,?)",
-                        (role, resource, can_create, can_read, can_update, can_delete, now))
+            for res in resources:
+                # safe field id for form names
+                res_id = res.replace(' ','_').replace('/','_').replace('-','_')
+                can_create = 1 if request.form.get(f'can_create_{res_id}') else 0
+                can_read = 1 if request.form.get(f'can_read_{res_id}') else 0
+                can_update = 1 if request.form.get(f'can_update_{res_id}') else 0
+                can_delete = 1 if request.form.get(f'can_delete_{res_id}') else 0
+
+                if can_create or can_read or can_update or can_delete:
+                    cur.execute("INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete, updated_at) VALUES (?,?,?,?,?,?,?)",
+                                (role, res, can_create, can_read, can_update, can_delete, now))
+                else:
+                    # remove explicit row if present
+                    cur.execute("DELETE FROM role_permissions WHERE role=? AND resource=?", (role, res))
+                changed_resources.append(res)
             conn.commit()
-        except Exception:
+            # audit summary
+            try:
+                cur.execute("INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?,?,?,?,?,?,?)",
+                            (str(uuid.uuid4()), session.get('user_id'), g.user.get('username') if g.get('user') else None, None, 'update_role_permissions', f'role={role};resources={','.join(changed_resources)}', datetime.now().isoformat()))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+        except Exception as e:
             conn.rollback()
-        # reload
-        cur.execute("SELECT role, resource, can_create, can_read, can_update, can_delete FROM role_permissions WHERE role=?", (role,))
-        rows = cur.fetchall()
+            conn.close()
+            flash('Erro ao salvar permissões: ' + str(e))
+            return redirect(url_for('roles'))
+
         conn.close()
-        flash('Permissão atualizada.')
+        flash('Permissões do papel atualizadas.')
         return redirect(url_for('roles'))
 
-    # GET: view form requires read permission
+    # GET: check read permission
     if not user_has_permission('roles','read'):
         conn.close()
         flash('Acesso negado: você não tem permissão para visualizar papéis.')
         return redirect(url_for('home'))
 
+    # load existing entries for this role
     cur.execute("SELECT role, resource, can_create, can_read, can_update, can_delete FROM role_permissions WHERE role=?", (role,))
     rows = cur.fetchall()
-    conn.close()
     entries = [{'resource':r[1],'can_create':r[2],'can_read':r[3],'can_update':r[4],'can_delete':r[5]} for r in rows]
-    return render_template('role_form.html', role=role, entries=entries)
+
+    conn.close()
+    resources = default_resources[:]
+    # include any resources already defined for this role that are not in defaults
+    for e in entries:
+        if e['resource'] not in resources:
+            resources.append(e['resource'])
+    return render_template('role_form.html', role=role, entries=entries, resources=resources)
 
 
 @app.route('/roles/assign', methods=['GET','POST'])
