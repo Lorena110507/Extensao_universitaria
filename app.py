@@ -111,6 +111,40 @@ def requires_permission(resource, action):
     return decorator
 
 
+def user_has_permission(resource, action):
+    """Helper exposed to templates to check whether the current user (g.user)
+    has the given CRUD permission for a resource.
+    """
+    if not g.get('user'):
+        return False
+    role = g.user.get('role','')
+    if role == 'Admin':
+        return True
+    col_map = {'create':'can_create','read':'can_read','update':'can_update','delete':'can_delete'}
+    col = col_map.get(action)
+    allowed = False
+    if USE_SQLITE:
+        try:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            # safe: col comes from controlled mapping above
+            cur.execute(f"SELECT {col} FROM role_permissions WHERE role=? AND resource=?", (role, resource))
+            row = cur.fetchone()
+            conn.close()
+            if row and row[0] == 1:
+                allowed = True
+        except Exception:
+            allowed = False
+    return allowed
+
+
+@app.context_processor
+def inject_permissions():
+    # expose a simple has_permission(resource, action) helper to Jinja templates
+    return dict(has_permission=user_has_permission)
+
+
 def init_db():
     """Initialize SQLite database and tables used by the app when USE_SQLITE is enabled.
     Creates both a generic collections table (legacy) and proper normalized tables for
@@ -896,11 +930,11 @@ def usuarios_editar(user_id):
     return render_template('usuario_edit.html', usuario=usuario)
 
 
-# Roles management (Admin)
+# Roles management
 @app.route('/roles')
-@requires_roles('Admin')
+@requires_permission('roles','read')
 def roles():
-    if not (g.get('user') and g.user.get('role') == 'Admin'):
+    if not user_has_permission('roles','read'):
         flash('Acesso negado.')
         return redirect(url_for('home'))
     init_db()
@@ -925,12 +959,22 @@ def roles():
 
 @app.route('/roles/<role>/editar', methods=['GET','POST'])
 @app.route('/roles/<path:role>/editar', methods=['GET','POST'])
-@requires_roles('Admin')
 def roles_editar(role):
     init_db()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
+    # POST: require create or update depending on whether the role already exists
     if request.method == 'POST':
+        # check if role already has entries
+        cur.execute("SELECT COUNT(1) FROM role_permissions WHERE role=?", (role,))
+        exists = (cur.fetchone()[0] > 0)
+        required_action = 'update' if exists else 'create'
+        if not user_has_permission('roles', required_action):
+            conn.close()
+            flash('Acesso negado: você não tem permissão para modificar papéis.')
+            return redirect(url_for('roles'))
+
         resource = request.form.get('resource','').strip()
         can_create = 1 if request.form.get('can_create') else 0
         can_read = 1 if request.form.get('can_read') else 0
@@ -949,6 +993,13 @@ def roles_editar(role):
         conn.close()
         flash('Permissão atualizada.')
         return redirect(url_for('roles'))
+
+    # GET: view form requires read permission
+    if not user_has_permission('roles','read'):
+        conn.close()
+        flash('Acesso negado: você não tem permissão para visualizar papéis.')
+        return redirect(url_for('home'))
+
     cur.execute("SELECT role, resource, can_create, can_read, can_update, can_delete FROM role_permissions WHERE role=?", (role,))
     rows = cur.fetchall()
     conn.close()
@@ -957,10 +1008,10 @@ def roles_editar(role):
 
 
 @app.route('/roles/assign', methods=['GET','POST'])
-@requires_roles('Admin')
+@requires_permission('roles','update')
 def roles_assign():
-    """Bulk assign users to roles. Admin-only."""
-    if not (g.get('user') and g.user.get('role') == 'Admin'):
+    """Bulk assign users to roles. Requires 'roles:update' permission."""
+    if not user_has_permission('roles','update'):
         flash('Acesso negado.')
         return redirect(url_for('home'))
     init_db()
