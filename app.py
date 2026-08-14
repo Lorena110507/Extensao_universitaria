@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import uuid
 import secrets
@@ -8,13 +8,31 @@ from flask import Flask, render_template, request, redirect, url_for, flash, sen
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+import subprocess
+import sys
 
 app = Flask(__name__)
 # Use environment variable for the secret key in production
+
+
+def ensure_package(pkg_name, import_name=None):
+    """Try to import a package; if missing, attempt to install it via pip then import.
+    Returns the imported module or raises ImportError.
+    """
+    import importlib
+    name = import_name or pkg_name
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        try:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg_name])
+        except Exception:
+            raise ImportError(f"NÃ£o foi possÃ­vel instalar {pkg_name}. Instale manualmente.")
+        return importlib.import_module(name)
 app.secret_key = os.environ.get("APP_SECRET", "troque-esta-chave-em-producao")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# No Vercel (serverless) o disco do projeto é só-leitura; gravamos em /tmp lá.
+# No Vercel (serverless) o disco do projeto Ã© sÃ³-leitura; gravamos em /tmp lÃ¡.
 DATA_DIR = "/tmp" if os.environ.get("VERCEL") else BASE_DIR + "/data"
 DB_PATH = os.path.join(DATA_DIR, "data.db")
 USE_SQLITE = os.environ.get("USE_SQLITE", "1") in ("1", "true", "yes")
@@ -22,35 +40,35 @@ DATA_FILE = os.path.join(DATA_DIR, "materiais.json")
 SEED_FILE = os.path.join(BASE_DIR, "data", "materiais.json")
 
 CATEGORIAS_EMOJI = {
-    "Courino": "🟫",
-    "Metal": "⚙️",
-    "Aviamento": "🧵",
-    "Tecido": "🧶",
-    "Embalagem": "📦",
-    "Outros": "🔹",
+    "Courino": "ðŸŸ«",
+    "Metal": "âš™ï¸",
+    "Aviamento": "ðŸ§µ",
+    "Tecido": "ðŸ§¶",
+    "Embalagem": "ðŸ“¦",
+    "Outros": "ðŸ”¹",
 }
 CATEGORIAS = list(CATEGORIAS_EMOJI.keys())
 UNIDADES = ["unidades", "metros", "rolos", "kg", "gramas", "pares", "pacotes"]
-MOTIVOS_BAIXA = ["Produção de bolsa", "Produção de nécessaire", "Amostra / Teste", "Desperdício"]
+MOTIVOS_BAIXA = ["ProduÃ§Ã£o de bolsa", "ProduÃ§Ã£o de nÃ©cessaire", "Amostra / Teste", "DesperdÃ­cio"]
 
-EMOJIS_PRODUTO = ["👜", "🎒", "👝", "💼", "🧳", "👛"]
-STATUS_PEDIDO = ["Pendente", "Em produção", "Concluído", "Entregue", "Cancelado"]
+EMOJIS_PRODUTO = ["ðŸ‘œ", "ðŸŽ’", "ðŸ‘", "ðŸ’¼", "ðŸ§³", "ðŸ‘›"]
+STATUS_PEDIDO = ["Pendente", "Em produÃ§Ã£o", "ConcluÃ­do", "Entregue", "Cancelado"]
 STATUS_PEDIDO_BADGE = {
     "Pendente": "badge-warn",
-    "Em produção": "badge-warn",
-    "Concluído": "badge-ok",
+    "Em produÃ§Ã£o": "badge-warn",
+    "ConcluÃ­do": "badge-ok",
     "Entregue": "badge-ok",
     "Cancelado": "badge-low",
 }
 STATUS_SOBRA_BADGE = {
-    "Disponível": "badge-warn",
+    "DisponÃ­vel": "badge-warn",
     "Reaproveitado": "badge-ok",
     "Descartado": "badge-low",
 }
-CATEGORIAS_DESPESA = ["Matéria-prima", "Aluguel", "Transporte", "Ferramentas", "Marketing", "Outros"]
+CATEGORIAS_DESPESA = ["MatÃ©ria-prima", "Aluguel", "Transporte", "Ferramentas", "Marketing", "Outros"]
 
 
-# ── Persistência genérica (usada pelos módulos novos) ────────────────────────
+# â”€â”€ PersistÃªncia genÃ©rica (usada pelos mÃ³dulos novos) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # --- role decorator helper
 
@@ -63,7 +81,7 @@ def requires_roles(*allowed_roles):
             role = (g.user.get('role') or '') if g.user else ''
             if role == 'Admin' or (role in allowed_roles):
                 return f(*args, **kwargs)
-            flash('Acesso negado: você não tem permissão para acessar esta área.')
+            flash('Acesso negado: vocÃª nÃ£o tem permissÃ£o para acessar esta Ã¡rea.')
             return redirect(url_for('home'))
         return wrapped
     return decorator
@@ -105,7 +123,7 @@ def requires_permission(resource, action):
                     allowed = True
             if allowed:
                 return f(*args, **kwargs)
-            flash('Acesso negado: você não tem permissão para acessar esta área.')
+            flash('Acesso negado: vocÃª nÃ£o tem permissÃ£o para acessar esta Ã¡rea.')
             return redirect(url_for('home'))
         return wrapped
     return decorator
@@ -386,9 +404,9 @@ def salvar_json(nome_arquivo, dados):
 
 
 def registrar_movimentacao(tipo, quantidade, unidade, motivo, material_nome=""):
-    """Grava um evento no histórico (usado em Alertas e Relatórios). Mantém só os 200 mais recentes.
-    Persiste em tabela movimentacoes quando USE_SQLITE está ativo, e mantém ainda o arquivo JSON legada
-    para compatibilidade com código antigo.
+    """Grava um evento no histÃ³rico (usado em Alertas e RelatÃ³rios). MantÃ©m sÃ³ os 200 mais recentes.
+    Persiste em tabela movimentacoes quando USE_SQLITE estÃ¡ ativo, e mantÃ©m ainda o arquivo JSON legada
+    para compatibilidade com cÃ³digo antigo.
     """
     usuario = session.get("user_id") if session else None
     data_text = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -400,7 +418,7 @@ def registrar_movimentacao(tipo, quantidade, unidade, motivo, material_nome=""):
         try:
             cur.execute(
                 "INSERT INTO movimentacoes (id,tipo,material_nome,quantidade,unidade,motivo,data,usuario,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (str(uuid.uuid4()), tipo, material_nome, float(quantidade or 0), unidade, motivo or "Não informado", data_text, usuario, datetime.now().isoformat()),
+                (str(uuid.uuid4()), tipo, material_nome, float(quantidade or 0), unidade, motivo or "NÃ£o informado", data_text, usuario, datetime.now().isoformat()),
             )
             # Keep only 200 latest rows
             cur.execute("DELETE FROM movimentacoes WHERE id NOT IN (SELECT id FROM movimentacoes ORDER BY created_at DESC LIMIT 200)")
@@ -418,14 +436,14 @@ def registrar_movimentacao(tipo, quantidade, unidade, motivo, material_nome=""):
         "material_nome": material_nome,
         "quantidade": float(quantidade or 0),
         "unidade": unidade,
-        "motivo": motivo or "Não informado",
+        "motivo": motivo or "NÃ£o informado",
         "data": data_text,
         "usuario": usuario,
     })
     salvar_json("movimentacoes.json", movs[:200])
 
 
-# ── Autenticação simples (usuários em collections 'usuarios') ─────────────────
+# â”€â”€ AutenticaÃ§Ã£o simples (usuÃ¡rios em collections 'usuarios') â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def carregar_usuarios():
     if USE_SQLITE:
@@ -637,7 +655,7 @@ def require_login():
             # expire session
             session.pop('user_id', None)
             session.pop('session_version', None)
-            flash('Sessão expirada. Por favor faça login novamente.')
+            flash('SessÃ£o expirada. Por favor faÃ§a login novamente.')
             return redirect(url_for('login'))
         g.user = user
         # Role based access control: if endpoint has permissions defined, enforce
@@ -645,7 +663,7 @@ def require_login():
         if allowed_roles:
             user_role = (g.user.get('role') or '') if g.user else ''
             if 'Admin' not in (user_role, ) and user_role not in allowed_roles:
-                flash('Acesso negado: você não tem permissão para acessar esta área.')
+                flash('Acesso negado: vocÃª nÃ£o tem permissÃ£o para acessar esta Ã¡rea.')
                 return redirect(url_for('home'))
         return
     return redirect(url_for("login", next=request.path))
@@ -675,7 +693,7 @@ def login():
                     flash("Autenticado com sucesso.")
                     nxt = request.args.get("next") or url_for("home")
                     return redirect(nxt)
-        flash("Usuário ou senha inválidos.")
+        flash("UsuÃ¡rio ou senha invÃ¡lidos.")
         return redirect(url_for("login"))
     return render_template("login.html")
 
@@ -697,11 +715,11 @@ def minha_conta():
         new = request.form.get('new_password','')
         new2 = request.form.get('new_password2','')
         if new != new2:
-            flash('Novas senhas não conferem.')
+            flash('Novas senhas nÃ£o conferem.')
             return redirect(url_for('minha_conta'))
         user = encontrar_usuario_por_username(g.user.get('username'))
         if not user:
-            flash('Usuário não encontrado.')
+            flash('UsuÃ¡rio nÃ£o encontrado.')
             return redirect(url_for('login'))
         stored = user.get('password_hash','')
         ok = False
@@ -710,7 +728,7 @@ def minha_conta():
         else:
             ok = check_password_hash(stored, current)
         if not ok:
-            flash('Senha atual inválida.')
+            flash('Senha atual invÃ¡lida.')
             return redirect(url_for('minha_conta'))
         # update password
         new_hash = generate_password_hash(new)
@@ -739,7 +757,7 @@ def minha_conta():
     return render_template('minha_conta.html')
 
 
-# ── Usuários (admin) ──────────────────────────────────────────────────────────
+# â”€â”€ UsuÃ¡rios (admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.route("/usuarios")
 @requires_roles('Admin')
 def usuarios():
@@ -766,14 +784,14 @@ def usuarios_novo():
         role = request.form.get("role", "")
 
         if not username or not password:
-            flash("Nome de usuário e senha são obrigatórios.")
+            flash("Nome de usuÃ¡rio e senha sÃ£o obrigatÃ³rios.")
             return redirect(url_for('usuarios_novo'))
         if password != password2:
-            flash("As senhas não conferem.")
+            flash("As senhas nÃ£o conferem.")
             return redirect(url_for('usuarios_novo'))
         exists = encontrar_usuario_por_username(username)
         if exists:
-            flash("Já existe um usuário com este nome.")
+            flash("JÃ¡ existe um usuÃ¡rio com este nome.")
             return redirect(url_for('usuarios_novo'))
 
         now = datetime.now().isoformat()
@@ -796,7 +814,7 @@ def usuarios_novo():
                     conn.rollback()
             except Exception as e:
                 conn.rollback()
-                flash('Erro ao criar usuário: ' + str(e))
+                flash('Erro ao criar usuÃ¡rio: ' + str(e))
                 return redirect(url_for('usuarios_novo'))
             finally:
                 conn.close()
@@ -811,7 +829,7 @@ def usuarios_novo():
             })
             salvar_usuarios(usuarios)
 
-        flash('Usuário criado com sucesso.')
+        flash('UsuÃ¡rio criado com sucesso.')
         return redirect(url_for('usuarios'))
 
     return render_template('usuario_form.html')
@@ -828,7 +846,7 @@ def usuarios_excluir(user_id):
     # Prevent removing the last user accidentally
     usuarios = carregar_usuarios()
     if len(usuarios) <= 1:
-        flash('Não é possível remover o último usuário.')
+        flash('NÃ£o Ã© possÃ­vel remover o Ãºltimo usuÃ¡rio.')
         return redirect(url_for('usuarios'))
 
     if USE_SQLITE:
@@ -853,7 +871,7 @@ def usuarios_excluir(user_id):
         usuarios = [u for u in usuarios if u.get('id') != user_id]
         salvar_usuarios(usuarios)
 
-    flash('Usuário removido.')
+    flash('UsuÃ¡rio removido.')
     return redirect(url_for('usuarios'))
 
 
@@ -874,14 +892,14 @@ def usuarios_editar(user_id):
         r = cur.fetchone()
         conn.close()
         if not r:
-            flash('Usuário não encontrado.')
+            flash('UsuÃ¡rio nÃ£o encontrado.')
             return redirect(url_for('usuarios'))
         usuario = {"id": r['id'], 'username': r['username'], 'role': r['role']}
     else:
         usuarios = carregar_usuarios()
         usuario = next((u for u in usuarios if u.get('id') == user_id), None)
         if not usuario:
-            flash('Usuário não encontrado.')
+            flash('UsuÃ¡rio nÃ£o encontrado.')
             return redirect(url_for('usuarios'))
 
     if request.method == 'POST':
@@ -924,7 +942,7 @@ def usuarios_editar(user_id):
                     if new_pwd:
                         u['password_hash'] = generate_password_hash(new_pwd)
             salvar_usuarios(usuarios)
-        flash('Usuário atualizado.')
+        flash('UsuÃ¡rio atualizado.')
         return redirect(url_for('usuarios'))
 
     return render_template('usuario_edit.html', usuario=usuario)
@@ -974,7 +992,7 @@ def roles_editar(role):
         required_action = 'update' if exists else 'create'
         if not user_has_permission('roles', required_action):
             conn.close()
-            flash('Acesso negado: você não tem permissão para modificar papéis.')
+            flash('Acesso negado: vocÃª nÃ£o tem permissÃ£o para modificar papÃ©is.')
             return redirect(url_for('roles'))
 
         # collect resources from defaults + optional custom_resource
@@ -1012,17 +1030,17 @@ def roles_editar(role):
         except Exception as e:
             conn.rollback()
             conn.close()
-            flash('Erro ao salvar permissões: ' + str(e))
+            flash('Erro ao salvar permissÃµes: ' + str(e))
             return redirect(url_for('roles'))
 
         conn.close()
-        flash('Permissões do papel atualizadas.')
+        flash('PermissÃµes do papel atualizadas.')
         return redirect(url_for('roles'))
 
     # GET: check read permission
     if not user_has_permission('roles','read'):
         conn.close()
-        flash('Acesso negado: você não tem permissão para visualizar papéis.')
+        flash('Acesso negado: vocÃª nÃ£o tem permissÃ£o para visualizar papÃ©is.')
         return redirect(url_for('home'))
 
     # load existing entries for this role
@@ -1094,12 +1112,12 @@ def roles_assign():
                     except Exception:
                         conn.rollback()
             if changed:
-                flash('Atribuições atualizadas. Usuários modificados foram desconectados e precisarão relogar para aplicar novas permissões.')
+                flash('AtribuiÃ§Ãµes atualizadas. UsuÃ¡rios modificados foram desconectados e precisarÃ£o relogar para aplicar novas permissÃµes.')
             else:
-                flash('Nenhuma alteração nas atribuições.')
+                flash('Nenhuma alteraÃ§Ã£o nas atribuiÃ§Ãµes.')
         except Exception as e:
             conn.rollback()
-            flash('Erro ao atualizar atribuições: ' + str(e))
+            flash('Erro ao atualizar atribuiÃ§Ãµes: ' + str(e))
         finally:
             conn.close()
         return redirect(url_for('roles'))
@@ -1108,7 +1126,7 @@ def roles_assign():
     return render_template('roles_assign.html', users=users, roles=roles)
 
 
-# ── Materiais (estoque) ───────────────────────────────────────────────────────
+# â”€â”€ Materiais (estoque) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def carregar_materiais():
     # When using SQLite, read from the proper 'materiais' table with a transaction.
     if USE_SQLITE:
@@ -1257,7 +1275,7 @@ def estoque():
     if cat != "Todos":
         resultado = [m for m in resultado if m["categoria"] == cat]
     if q:
-        # busca por nome OU por código GTIN
+        # busca por nome OU por cÃ³digo GTIN
         resultado = [
             m for m in resultado
             if q in m["nome"].lower() or q in (m.get("gtin") or "").lower()
@@ -1341,7 +1359,7 @@ def adicionar():
         token = request.form.get('form_token')
         expected = session.pop('form_token', None)
         if not token or token != expected:
-            flash('Formulário já foi enviado ou token inválido. Por favor, tente novamente.')
+            flash('FormulÃ¡rio jÃ¡ foi enviado ou token invÃ¡lido. Por favor, tente novamente.')
             return redirect(url_for('adicionar'))
 
         nome = request.form.get("nome", "").strip()
@@ -1364,7 +1382,7 @@ def adicionar():
         # Basic duplicate prevention: same name + gtin
         existe = next((m for m in materiais if m["nome"].strip().lower() == nome.lower() and (m.get("gtin") or "") == gtin), None)
         if existe:
-            flash("Material com mesmo nome/GTIN já existe no estoque.")
+            flash("Material com mesmo nome/GTIN jÃ¡ existe no estoque.")
             return redirect(url_for("adicionar"))
 
         novo_id = str(uuid.uuid4())
@@ -1372,7 +1390,7 @@ def adicionar():
             "id": novo_id,
             "nome": nome,
             "categoria": categoria,
-            "emoji": CATEGORIAS_EMOJI.get(categoria, "🔹"),
+            "emoji": CATEGORIAS_EMOJI.get(categoria, "ðŸ”¹"),
             "quantidade": quantidade,
             "unidade": request.form.get("unidade", "unidades"),
             "quantidade_minima": quantidade_minima,
@@ -1421,16 +1439,47 @@ def baixa():
         material_id = request.form.get("material_id")
         m = encontrar(materiais, material_id)
         try:
-            qtd = float(request.form.get("quantidade", 0))
-        except ValueError:
+            qtd_raw = request.form.get("quantidade", 0)
+            qtd = float(qtd_raw)
+        except Exception:
             qtd = 0
         motivo = request.form.get("motivo", "").strip()
-        if m and qtd > 0:
-            m["quantidade"] = round(max(0, m["quantidade"] - qtd), 3)
-            salvar_materiais(materiais)
-            registrar_movimentacao("baixa", qtd, m["unidade"], motivo, m["nome"])
-            flash(f"Baixa registrada em {m['nome']}.")
-        return redirect(url_for("baixa"))
+
+        # validation: material must exist
+        if not m:
+            flash('Material nÃ£o encontrado. Verifique e tente novamente.')
+            return redirect(url_for('baixa'))
+
+        # if unit is 'unidades', require integer quantities
+        unidade = (m.get('unidade') or '').lower()
+        if unidade == 'unidades' or unidade == 'unidade' or unidade == 'unid':
+            # if qtd is not whole number, reject
+            if abs(qtd - int(qtd)) > 1e-9:
+                flash('Para unidades inteiras, informe um nÃºmero inteiro na quantidade.')
+                return redirect(url_for('baixa'))
+            qtd = int(qtd)
+
+        if qtd <= 0:
+            flash('Quantidade invÃ¡lida para baixa.')
+            return redirect(url_for('baixa'))
+
+        # check stock availability
+        current = float(m.get('quantidade') or 0)
+        if qtd > current:
+            flash(f'NÃ£o hÃ¡ quantidade suficiente em estoque para {m.get("nome")}. Estoque atual: {current}.')
+            return redirect(url_for('baixa'))
+
+        # proceed with deduction
+        if unidade == 'unidades' or unidade == 'unidade' or unidade == 'unid':
+            novo_q = max(0, int(current) - int(qtd))
+        else:
+            novo_q = round(max(0, current - float(qtd)), 3)
+
+        m['quantidade'] = novo_q
+        salvar_materiais(materiais)
+        registrar_movimentacao('baixa', qtd, m.get('unidade'), motivo, m.get('nome'))
+        flash(f'Baixa registrada em {m.get("nome")}.')
+        return redirect(url_for('baixa'))
 
     mid_preselecionado = request.args.get("mid", "")
     return render_template(
@@ -1441,7 +1490,7 @@ def baixa():
     )
 
 
-# ── Produtos & Receitas ───────────────────────────────────────────────────────
+# â”€â”€ Produtos & Receitas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def carregar_produtos():
     if USE_SQLITE:
         init_db()
@@ -1495,7 +1544,7 @@ def salvar_produtos(produtos):
 
 
 def calcular_produto(produto, mat_map):
-    """Anexa custo estimado, margem e a receita já resolvida com nome/emoji/unidade dos materiais."""
+    """Anexa custo estimado, margem e a receita jÃ¡ resolvida com nome/emoji/unidade dos materiais."""
     custo = 0.0
     receita_detalhada = []
     for item in produto.get("receita", []):
@@ -1509,7 +1558,7 @@ def calcular_produto(produto, mat_map):
             })
         else:
             receita_detalhada.append({
-                "nome": "Material removido", "emoji": "❓",
+                "nome": "Material removido", "emoji": "â“",
                 "quantidade": item["quantidade"], "unidade": "", "disponivel": None,
             })
     p = dict(produto)
@@ -1535,7 +1584,7 @@ def produto_novo():
 
     if request.method == "POST":
         nome = request.form.get("nome", "").strip()
-        emoji = request.form.get("emoji", "👜").strip() or "👜"
+        emoji = request.form.get("emoji", "ðŸ‘œ").strip() or "ðŸ‘œ"
         try:
             preco_venda = float(request.form.get("preco_venda", 0) or 0)
         except ValueError:
@@ -1559,7 +1608,17 @@ def produto_novo():
             flash("Informe o nome do produto.")
             return redirect(url_for("produto_novo"))
 
+        # must have at least one material in receita
+        if not receita:
+            flash("NÃ£o Ã© possÃ­vel criar um produto sem materiais na receita.")
+            return redirect(url_for("produto_novo"))
+
+        # prevent duplicate product names (case-insensitive)
         produtos_lista = carregar_produtos()
+        if any(p.get('nome','').strip().lower() == nome.lower() for p in produtos_lista):
+            flash('JÃ¡ existe um produto com este nome.')
+            return redirect(url_for('produto_novo'))
+
         produtos_lista.append({
             "id": str(uuid.uuid4()),
             "nome": nome,
@@ -1584,7 +1643,7 @@ def produto_excluir(produto_id):
     return redirect(url_for("produtos"))
 
 
-# ── Pedidos dos Clientes ──────────────────────────────────────────────────────
+# â”€â”€ Pedidos dos Clientes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.route("/pedidos")
 @requires_roles('Vendas','Producao')
 def pedidos():
@@ -1637,7 +1696,7 @@ def pedido_novo():
 
         produto = next((p for p in produtos_lista if p["id"] == produto_id), None)
         if not cliente or not produto or quantidade <= 0:
-            flash("Preencha cliente, produto e uma quantidade válida.")
+            flash("Preencha cliente, produto e uma quantidade vÃ¡lida.")
             return redirect(url_for("pedido_novo"))
 
         preco_unit = produto.get("preco_venda", 0)
@@ -1647,7 +1706,7 @@ def pedido_novo():
             "cliente": cliente,
             "produto_id": produto_id,
             "produto_nome": produto["nome"],
-            "produto_emoji": produto.get("emoji", "👜"),
+            "produto_emoji": produto.get("emoji", "ðŸ‘œ"),
             "quantidade": quantidade,
             "preco_unitario": preco_unit,
             "valor_total": round(preco_unit * quantidade, 2),
@@ -1684,7 +1743,7 @@ def pedido_novo():
 def pedido_status(pedido_id):
     novo_status = request.form.get("status", "")
     if novo_status not in STATUS_PEDIDO:
-        flash("Status inválido.")
+        flash("Status invÃ¡lido.")
         return redirect(url_for("pedidos"))
 
     if USE_SQLITE:
@@ -1699,13 +1758,13 @@ def pedido_status(pedido_id):
             p = cur.fetchone()
             if not p:
                 conn.rollback()
-                flash("Pedido não encontrado.")
+                flash("Pedido nÃ£o encontrado.")
                 return redirect(url_for("pedidos"))
             # update status
             cur.execute("UPDATE pedidos SET status=?, updated_at=? WHERE id=?", (novo_status, datetime.now().isoformat(), pedido_id))
 
-            # if concluding production, deduct materials only once
-            if novo_status == "Concluído" and not p["materiais_baixados"]:
+                    # if moving into a production/delivered state, deduct materials only once
+                    if novo_status in ("Em produÃ§Ã£o","ConcluÃ­do","Entregue") and not p["materiais_baixados"]:
                 # load product recipe
                 cur.execute("SELECT * FROM produtos WHERE id=?", (p["produto_id"],))
                 pr = cur.fetchone()
@@ -1715,32 +1774,60 @@ def pedido_status(pedido_id):
                         receita = json.loads(pr["receita"])
                     except Exception:
                         receita = []
-                    for item in receita:
-                        mat_id = item.get("material_id")
-                        qtd_por_unidade = float(item.get("quantidade") or 0)
-                        total = round(qtd_por_unidade * p["quantidade"], 3)
-                        # decrement material quantity
-                        cur.execute("SELECT quantidade, unidade, nome FROM materiais WHERE id=?", (mat_id,))
-                        mat = cur.fetchone()
-                        if mat:
-                            nova = max(0, float(mat["quantidade"]) - total)
-                            cur.execute("UPDATE materiais SET quantidade=?, updated_at=? WHERE id=?", (nova, datetime.now().isoformat(), mat_id))
-                            # registrar movimentacao into collections table as legacy JSON storage
-                            movs = carregar_json("movimentacoes.json")
-                            movs.insert(0, {
-                                "id": str(uuid.uuid4()),
-                                "tipo": "producao",
-                                "material_nome": mat["nome"],
-                                "quantidade": total,
-                                "unidade": mat["unidade"],
-                                "motivo": f"Produção — pedido de {p['cliente']}",
-                                "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                                "usuario": session.get("user_id") if session else None,
-                            })
-                            salvar_json("movimentacoes.json", movs[:200])
-                    cur.execute("UPDATE pedidos SET materiais_baixados=1, updated_at=? WHERE id=?", (datetime.now().isoformat(), pedido_id))
-            conn.commit()
-            flash(f"Pedido atualizado para \"{novo_status}\".")
+
+                            # pre-check availability
+                            insufficient = []
+                            missing = []
+                            for item in receita:
+                                mat_id = item.get("material_id")
+                                qtd_por_unidade = float(item.get("quantidade") or 0)
+                                total = round(qtd_por_unidade * p["quantidade"], 3)
+                                cur.execute("SELECT quantidade, unidade, nome FROM materiais WHERE id=?", (mat_id,))
+                                mat = cur.fetchone()
+                                if not mat:
+                                    missing.append(mat_id)
+                                else:
+                                    unidade = (mat["unidade"] or "").lower()
+                                    # if unidade is integer-based, require integer total
+                                    if unidade in ("unidades","unidade","unid") and abs(total - int(total)) > 1e-9:
+                                        insufficient.append((mat["nome"], f"quantidade precisa ser inteira (calculada {total})"))
+                                    elif float(mat["quantidade"]) < total:
+                                        insufficient.append((mat["nome"], f"estoque insuficiente: {mat['quantidade']} < {total}"))
+                            if missing or insufficient:
+                                msg_parts = []
+                                if missing:
+                                    msg_parts.append('Materiais ausentes: ' + ','.join(missing))
+                                if insufficient:
+                                    msg_parts.extend([f"{n}: {reason}" for n, reason in insufficient])
+                                conn.rollback()
+                                flash('NÃ£o foi possÃ­vel concluir a baixa automÃ¡tica: ' + '; '.join(msg_parts))
+                                return redirect(url_for('pedidos'))
+
+                            # perform deductions
+                            for item in receita:
+                                mat_id = item.get("material_id")
+                                qtd_por_unidade = float(item.get("quantidade") or 0)
+                                total = round(qtd_por_unidade * p["quantidade"], 3)
+                                cur.execute("SELECT quantidade, unidade, nome FROM materiais WHERE id=?", (mat_id,))
+                                mat = cur.fetchone()
+                                if mat:
+                                    nova = max(0, float(mat["quantidade"]) - total)
+                                    cur.execute("UPDATE materiais SET quantidade=?, updated_at=? WHERE id=?", (nova, datetime.now().isoformat(), mat_id))
+                                    movs = carregar_json("movimentacoes.json")
+                                    movs.insert(0, {
+                                        "id": str(uuid.uuid4()),
+                                        "tipo": "producao",
+                                        "material_nome": mat["nome"],
+                                        "quantidade": total,
+                                        "unidade": mat["unidade"],
+                                        "motivo": f"ProduÃ§Ã£o â€” pedido de {p['cliente']}",
+                                        "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                                        "usuario": session.get("user_id") if session else None,
+                                    })
+                                    salvar_json("movimentacoes.json", movs[:200])
+                            cur.execute("UPDATE pedidos SET materiais_baixados=1, updated_at=? WHERE id=?", (datetime.now().isoformat(), pedido_id))
+                    conn.commit()
+                    flash(f"Pedido atualizado para \"{novo_status}\".")
         except Exception as e:
             conn.rollback()
             flash("Erro ao atualizar pedido: " + str(e))
@@ -1754,20 +1841,41 @@ def pedido_status(pedido_id):
     if pedido:
         pedido["status"] = novo_status
 
-        # Ao concluir a produção, dá baixa automática dos materiais da receita (só na 1ª vez).
-        if novo_status == "Concluído" and not pedido.get("materiais_baixados"):
+        # Ao mover para produÃ§Ã£o/concluÃ­do/entregue, dÃ¡ baixa automÃ¡tica dos materiais da receita (sÃ³ na 1Âª vez).
+        if novo_status in ("Em produÃ§Ã£o","ConcluÃ­do","Entregue") and not pedido.get("materiais_baixados"):
             produto = next((pr for pr in carregar_json("produtos.json") if pr["id"] == pedido["produto_id"]), None)
             if produto and produto.get("receita"):
                 materiais = carregar_materiais()
+                # pre-check
+                missing = []
+                insufficient = []
                 for item in produto["receita"]:
                     m = encontrar(materiais, item["material_id"])
-                    if m:
+                    total = round(item["quantidade"] * pedido["quantidade"], 3)
+                    if not m:
+                        missing.append(item.get("material_id"))
+                    else:
+                        unidade = (m.get("unidade") or "").lower()
+                        if unidade in ("unidades","unidade","unid") and abs(total - int(total)) > 1e-9:
+                            insufficient.append(f"{m.get('nome')}: quantidade precisa ser inteira (calculada {total})")
+                        elif float(m.get("quantidade") or 0) < total:
+                            insufficient.append(f"{m.get('nome')}: estoque insuficiente ({m.get('quantidade')} < {total})")
+                if missing or insufficient:
+                    msg = []
+                    if missing:
+                        msg.append('Materiais ausentes: ' + ','.join(missing))
+                    if insufficient:
+                        msg.extend(insufficient)
+                    flash('NÃ£o foi possÃ­vel concluir a baixa automÃ¡tica: ' + '; '.join(msg))
+                else:
+                    for item in produto["receita"]:
+                        m = encontrar(materiais, item["material_id"])
                         total = round(item["quantidade"] * pedido["quantidade"], 3)
-                        m["quantidade"] = round(max(0, m["quantidade"] - total), 3)
-                        registrar_movimentacao("producao", total, m["unidade"],
-                                                f"Produção — pedido de {pedido['cliente']}", m["nome"])
-                salvar_materiais(materiais)
-            pedido["materiais_baixados"] = True
+                        if m:
+                            m["quantidade"] = round(max(0, m["quantidade"] - total), 3)
+                            registrar_movimentacao("producao", total, m["unidade"], f"ProduÃ§Ã£o â€” pedido de {pedido['cliente']}", m["nome"])
+                    salvar_materiais(materiais)
+                    pedido["materiais_baixados"] = True
 
     salvar_json("pedidos.json", pedidos_lista)
     flash(f"Pedido de {pedido['cliente']} atualizado para \"{novo_status}\".")
@@ -1794,7 +1902,7 @@ def pedido_excluir(pedido_id):
     return redirect(url_for("pedidos"))
 
 
-# ── Sobras e Reaproveitamento ──────────────────────────────────────────────────
+# â”€â”€ Sobras e Reaproveitamento â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.route("/sobras")
 @requires_roles('Estoque')
 def sobras():
@@ -1837,22 +1945,48 @@ def sobra_novo():
             quantidade = 0
 
         m = encontrar(materiais, material_id) if material_id else None
-        unidade = m["unidade"] if m else request.form.get("unidade", "unidades")
-        nome_final = descricao or (m["nome"] if m else "Sobra sem descrição")
+
+        # If material_id provided but material not found, reject
+        if material_id and not m:
+            flash('Material selecionado nÃ£o existe. Escolha um material vÃ¡lido ou deixe em branco.')
+            return redirect(url_for('sobra_novo'))
+
+        # If description looks like dimensions (e.g., 10x20, 10 x 20, 10Ã—20 or contains cm/mm), force unit to 'unidades'
+        import re
+        unidade_forcada = None
+        if descricao:
+            if re.search(r"\d+\s*[xÃ—]\s*\d+", descricao) or re.search(r"\d+\s*(cm|mm|m)\b", descricao.lower()):
+                unidade_forcada = 'unidades'
+
+        unidade = m["unidade"] if m else (unidade_forcada or request.form.get("unidade", "unidades"))
+        if unidade_forcada:
+            unidade = unidade_forcada
+
+        nome_final = descricao or (m["nome"] if m else "Sobra sem descriÃ§Ã£o")
 
         if quantidade <= 0:
-            flash("Informe uma quantidade válida.")
+            flash("Informe uma quantidade vÃ¡lida.")
             return redirect(url_for("sobra_novo"))
 
+        # Insert into DB with safety
         if USE_SQLITE:
-            init_db()
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
-            now = datetime.now().isoformat()
-            cur.execute("INSERT INTO sobras (id,material_id,descricao,quantidade,unidade,data,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (str(uuid.uuid4()), material_id, nome_final, quantidade, unidade, datetime.now().strftime("%d/%m/%Y"), "Disponível", now, now))
-            conn.commit()
-            conn.close()
+            try:
+                init_db()
+                conn = sqlite3.connect(DB_PATH)
+                cur = conn.cursor()
+                now = datetime.now().isoformat()
+                cur.execute("INSERT INTO sobras (id,material_id,descricao,quantidade,unidade,data,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                            (str(uuid.uuid4()), material_id, nome_final, quantidade, unidade, datetime.now().strftime("%d/%m/%Y"), "DisponÃ­vel", now, now))
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                flash('Erro ao registrar sobra: ' + str(e))
+                return redirect(url_for('sobra_novo'))
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         else:
             sobras_lista = carregar_json("sobras.json")
             sobras_lista.append({
@@ -1862,7 +1996,7 @@ def sobra_novo():
                 "quantidade": quantidade,
                 "unidade": unidade,
                 "data": datetime.now().strftime("%d/%m/%Y"),
-                "status": "Disponível",
+                "status": "DisponÃ­vel",
             })
             salvar_json("sobras.json", sobras_lista)
         flash(f"Sobra de {nome_final} registrada.")
@@ -1879,27 +2013,59 @@ def sobra_reaproveitar(sobra_id):
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        cur.execute("SELECT * FROM sobras WHERE id=?", (sobra_id,))
-        s = cur.fetchone()
-        if s and s["status"] == "Disponível":
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute("SELECT * FROM sobras WHERE id=?", (sobra_id,))
+            s = cur.fetchone()
+            if not s:
+                conn.rollback()
+                flash('Registro de sobra não encontrado.')
+                return redirect(url_for('sobras'))
+            if s["status"] != "Disponível":
+                conn.rollback()
+                flash('Esta sobra já foi processada ou não está disponível.')
+                return redirect(url_for('sobras'))
+
             if s["material_id"]:
-                # increment material quantity
+                # increment material quantity, but ensure material exists
                 cur.execute("SELECT quantidade, unidade, nome FROM materiais WHERE id=?", (s["material_id"],))
                 mat = cur.fetchone()
-                if mat:
+                if not mat:
+                    conn.rollback()
+                    flash('Não foi possível reaproveitar: material vinculado não existe no estoque.')
+                    return redirect(url_for('sobras'))
+                # type checks
+                try:
                     nova = round(float(mat["quantidade"]) + float(s["quantidade"]), 3)
-                    cur.execute("UPDATE materiais SET quantidade=?, updated_at=? WHERE id=?", (nova, datetime.now().isoformat(), s["material_id"]))
-                    # register movimentacao
-                    registrar_movimentacao("reaproveitamento", s["quantidade"], s["unidade"], "Sobra reaproveitada de volta ao estoque", mat["nome"]) 
+                except Exception:
+                    conn.rollback()
+                    flash('Quantidade inválida na sobra ou no material.')
+                    return redirect(url_for('sobras'))
+                cur.execute("UPDATE materiais SET quantidade=?, updated_at=? WHERE id=?", (nova, datetime.now().isoformat(), s["material_id"]))
+                # register movimentacao
+                registrar_movimentacao("reaproveitamento", s["quantidade"], s["unidade"], "Sobra reaproveitada de volta ao estoque", mat["nome"]) 
+
             cur.execute("UPDATE sobras SET status=?, updated_at=? WHERE id=?", ("Reaproveitado", datetime.now().isoformat(), sobra_id))
             conn.commit()
-            conn.close()
             flash("Sobra reaproveitada com sucesso.")
-        return redirect(url_for("sobras"))
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            flash('Erro ao reaproveitar sobra: ' + str(e))
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return redirect(url_for('sobras'))
+
+    
 
     sobras_lista = carregar_json("sobras.json")
     sobra = next((s for s in sobras_lista if s["id"] == sobra_id), None)
-    if sobra and sobra["status"] == "Disponível":
+    if sobra and sobra["status"] == "DisponÃ­vel":
         if sobra.get("material_id"):
             materiais = carregar_materiais()
             m = encontrar(materiais, sobra["material_id"])
@@ -1923,7 +2089,7 @@ def sobra_descartar(sobra_id):
         cur = conn.cursor()
         cur.execute("SELECT status FROM sobras WHERE id=?", (sobra_id,))
         r = cur.fetchone()
-        if r and r[0] == "Disponível":
+        if r and r[0] == "DisponÃ­vel":
             cur.execute("UPDATE sobras SET status=?, updated_at=? WHERE id=?", ("Descartado", datetime.now().isoformat(), sobra_id))
             conn.commit()
         conn.close()
@@ -1932,7 +2098,7 @@ def sobra_descartar(sobra_id):
 
     sobras_lista = carregar_json("sobras.json")
     sobra = next((s for s in sobras_lista if s["id"] == sobra_id), None)
-    if sobra and sobra["status"] == "Disponível":
+    if sobra and sobra["status"] == "DisponÃ­vel":
         sobra["status"] = "Descartado"
         salvar_json("sobras.json", sobras_lista)
         flash(f"{sobra['descricao']} marcada como descartada.")
@@ -1959,7 +2125,7 @@ def sobra_excluir(sobra_id):
     return redirect(url_for("sobras"))
 
 
-# ── Financeiro ─────────────────────────────────────────────────────────────────
+# â”€â”€ Financeiro â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.route("/financeiro")
 @requires_roles('Financeiro','Relatorios')
 def financeiro():
@@ -1979,7 +2145,7 @@ def financeiro():
             "valor_total": r["valor_total"],
         } for r in pedidos_rows]
         receita_entregue = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] == "Entregue"), 2)
-        receita_prevista = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] in ("Pendente", "Em produção", "Concluído")), 2)
+        receita_prevista = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] in ("Pendente", "Em produÃ§Ã£o", "ConcluÃ­do")), 2)
 
         cur.execute("SELECT * FROM despesas ORDER BY created_at DESC")
         despesas_rows = cur.fetchall()
@@ -2003,7 +2169,7 @@ def financeiro():
     pedidos_lista = carregar_json("pedidos.json")
     receita_entregue = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] == "Entregue"), 2)
     receita_prevista = round(
-        sum(p["valor_total"] for p in pedidos_lista if p["status"] in ("Pendente", "Em produção", "Concluído")), 2
+        sum(p["valor_total"] for p in pedidos_lista if p["status"] in ("Pendente", "Em produÃ§Ã£o", "ConcluÃ­do")), 2
     )
 
     despesas = carregar_json("despesas.json")
@@ -2033,7 +2199,7 @@ def financeiro_despesa():
     categoria = request.form.get("categoria", "Outros")
 
     if not descricao or valor <= 0:
-        flash("Informe descrição e valor válidos para a despesa.")
+        flash("Informe descriÃ§Ã£o e valor vÃ¡lidos para a despesa.")
         return redirect(url_for("financeiro"))
 
     if USE_SQLITE:
@@ -2081,7 +2247,7 @@ def financeiro_despesa_excluir(despesa_id):
     return redirect(url_for("financeiro"))
 
 
-# ── Alertas e Relatórios ───────────────────────────────────────────────────────
+# â”€â”€ Alertas e RelatÃ³rios â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.route("/alertas")
 @requires_roles('Relatorios','Financeiro','Estoque')
 def alertas():
@@ -2163,17 +2329,21 @@ def exportar_tudo():
     return resp
 
 
-# Exportar relatório financeiro em PDF
+# Exportar relatÃ³rio financeiro em PDF
 @app.route('/exportar/pdf')
 @requires_roles('Relatorios','Financeiro')
 def exportar_financeiro_pdf():
     try:
         from io import BytesIO
+        # ensure reportlab installed
+        reportlab = ensure_package('reportlab')
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
         from reportlab.lib.units import mm
+    except ImportError as e:
+        return (str(e)), 400
     except Exception:
-        return ("Biblioteca ReportLab não instalada. Instale com: pip install reportlab"), 400
+        return ("Erro ao carregar ReportLab."), 400
 
     materiais = carregar_materiais()
     valor_estoque = round(sum(m.get("quantidade", 0) * m.get("custo", 0) for m in materiais), 2)
@@ -2191,7 +2361,7 @@ def exportar_financeiro_pdf():
             "valor_total": r["valor_total"],
         } for r in pedidos_rows]
         receita_entregue = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] == "Entregue"), 2)
-        receita_prevista = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] in ("Pendente", "Em produção", "Concluído")), 2)
+        receita_prevista = round(sum(p["valor_total"] for p in pedidos_lista if p["status"] in ("Pendente", "Em produÃ§Ã£o", "ConcluÃ­do")), 2)
 
         cur.execute("SELECT * FROM despesas ORDER BY created_at DESC LIMIT 20")
         despesas_rows = cur.fetchall()
@@ -2200,7 +2370,7 @@ def exportar_financeiro_pdf():
     else:
         pedidos_lista = carregar_json("pedidos.json")
         receita_entregue = round(sum(p.get("valor_total", 0) for p in pedidos_lista if p.get("status") == "Entregue"), 2)
-        receita_prevista = round(sum(p.get("valor_total", 0) for p in pedidos_lista if p.get("status") in ("Pendente", "Em produção", "Concluído")), 2)
+        receita_prevista = round(sum(p.get("valor_total", 0) for p in pedidos_lista if p.get("status") in ("Pendente", "Em produÃ§Ã£o", "ConcluÃ­do")), 2)
         despesas = carregar_json("despesas.json")[:20]
 
     total_despesas = round(sum(d.get("valor", 0) for d in despesas), 2)
@@ -2214,7 +2384,7 @@ def exportar_financeiro_pdf():
     y = height - margin
 
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(margin, y, "Relatório Financeiro")
+    c.drawString(margin, y, "RelatÃ³rio Financeiro")
     y -= 10 * mm
 
     c.setFont("Helvetica", 11)
@@ -2223,7 +2393,7 @@ def exportar_financeiro_pdf():
         f"Valor em estoque: R$ {valor_estoque:.2f}",
         f"Receita (entregue): R$ {receita_entregue:.2f}",
         f"Receita (prevista): R$ {receita_prevista:.2f}",
-        f"Total despesas (últimas 20): R$ {total_despesas:.2f}",
+        f"Total despesas (Ãºltimas 20): R$ {total_despesas:.2f}",
         f"Lucro estimado: R$ {lucro:.2f}",
     ]
     for ln in lines:
@@ -2232,11 +2402,11 @@ def exportar_financeiro_pdf():
 
     y -= 4 * mm
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin, y, "Despesas (últimas 20)")
+    c.drawString(margin, y, "Despesas (Ãºltimas 20)")
     y -= 8 * mm
     c.setFont("Helvetica", 10)
     for d in despesas:
-        texto = f"{d.get('data','')}: {d.get('descricao','')} — R$ {float(d.get('valor',0)):.2f} ({d.get('categoria','')})"
+        texto = f"{d.get('data','')}: {d.get('descricao','')} â€” R$ {float(d.get('valor',0)):.2f} ({d.get('categoria','')})"
         c.drawString(margin, y, texto[:120])
         y -= 6 * mm
         if y < margin + 40*mm:
@@ -2257,9 +2427,13 @@ def exportar_financeiro_pdf():
 def exportar_tudo_xlsx():
     try:
         from io import BytesIO
+        # ensure openpyxl installed
+        ensure_package('openpyxl')
         from openpyxl import Workbook
+    except ImportError as e:
+        return (str(e)), 400
     except Exception:
-        return ("Biblioteca openpyxl não instalada. Instale com: pip install openpyxl"), 400
+        return ("Erro ao carregar openpyxl."), 400
 
     colecoes = [
         "materiais.json",
@@ -2304,7 +2478,7 @@ def exportar_tudo_xlsx():
     summary = wb.create_sheet(title="resumo")
     materiais = carregar_materiais()
     valor_estoque = round(sum(m.get("quantidade", 0) * m.get("custo", 0) for m in materiais), 2)
-    summary.append(["Relatório gerado em", datetime.now().isoformat()])
+    summary.append(["RelatÃ³rio gerado em", datetime.now().isoformat()])
     summary.append(["Valor em estoque", valor_estoque])
 
     buf = BytesIO()
@@ -2313,7 +2487,7 @@ def exportar_tudo_xlsx():
     return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='export_all.xlsx')
 
 
-# Fallback — mantém a navegação de pé para qualquer rota que ainda não exista.
+# Fallback â€” mantÃ©m a navegaÃ§Ã£o de pÃ© para qualquer rota que ainda nÃ£o exista.
 @app.route("/<pagina>")
 def em_construcao(pagina):
     return redirect(url_for("home"))
@@ -2323,7 +2497,7 @@ if __name__ == "__main__":
     app.run(debug=True)
 
 
-# Fallback — mantém a navegação de pé para qualquer rota que ainda não exista.
+# Fallback â€” mantÃ©m a navegaÃ§Ã£o de pÃ© para qualquer rota que ainda nÃ£o exista.
 @app.route("/<pagina>")
 def em_construcao(pagina):
     return redirect(url_for("home"))
@@ -2331,3 +2505,5 @@ def em_construcao(pagina):
 
 if __name__ == "__main__":
     app.run(debug=True)
+
+

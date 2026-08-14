@@ -25,7 +25,7 @@
     <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
       📝 DESCRIÇÃO <span style="font-weight:400; color:var(--muted);">(opcional)</span>
     </label>
-    <input name="descricao" placeholder="Ex: Retalho de courino preto 20x30cm" class="input-vintage">
+    <input name="descricao" id="descricao" placeholder="Ex: Retalho de courino preto 20x30cm" class="input-vintage">
   </div>
 
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px;">
@@ -54,9 +54,48 @@
 <script>
 function atualizarUnidade() {
   const opt = document.getElementById('sel-material').selectedOptions[0];
+  const unidadeSelect = document.getElementById('sel-unidade');
+  const quantidade = document.querySelector('input[name="quantidade"]');
   if (opt && opt.dataset.unidade) {
-    document.getElementById('sel-unidade').value = opt.dataset.unidade;
+    unidadeSelect.value = opt.dataset.unidade;
+    unidadeSelect.disabled = true;
+    // if unidade is unidades, make quantidade integer-only
+    if (opt.dataset.unidade === 'unidades') {
+      quantidade.step = '1';
+      quantidade.min = '1';
+    }
+  } else {
+    // if no material selected, re-enable
+    unidadeSelect.disabled = false;
+    quantidade.step = '0.01';
+    quantidade.min = '0.01';
   }
 }
+
+// detect description that looks like dimensions and force unidades
+function verificarDescricao() {
+  const desc = document.getElementById('descricao').value.toLowerCase();
+  const unidadeSelect = document.getElementById('sel-unidade');
+  const quantidade = document.querySelector('input[name="quantidade"]');
+  const dimPattern = /\d+\s*[x×]\s*\d+|\d+\s*(cm|mm|m)\b/;
+  if (dimPattern.test(desc)) {
+    unidadeSelect.value = 'unidades';
+    unidadeSelect.disabled = true;
+    quantidade.step = '1';
+    quantidade.min = '1';
+  } else if (!document.getElementById('sel-material').selectedOptions[0].dataset.unidade) {
+    // only re-enable if material didn't lock it
+    unidadeSelect.disabled = false;
+    quantidade.step = '0.01';
+    quantidade.min = '0.01';
+  }
+}
+
+// wire events
+document.getElementById('sel-material').addEventListener('change', atualizarUnidade);
+document.getElementById('descricao').addEventListener('input', verificarDescricao);
+// run on load
+atualizarUnidade();
+verificarDescricao();
 </script>
 {% endblock %}
