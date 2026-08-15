@@ -1,29 +1,61 @@
 {% extends "base.html" %}
 {% set titulo_pagina = "Editar Usuário" %}
+{% set subtitulo = "Alteração de Papel e Senha" %}
 {% block conteudo %}
 
-<h3 class="font-serif">Editar usuário</h3>
-<form method="post" style="margin-top:12px; max-width:420px;">
-  <div style="margin-bottom:12px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Nome de usuário</label>
-    <input name="username" value="{{ usuario.username }}" readonly class="input-vintage">
+<div style="margin-bottom:18px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+    <div>
+      <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">✏️ Editar Usuário</h3>
+      <p class="font-crimson" style="font-size:13px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+        Altere o papel de acesso ou redefina a senha do usuário {{ usuario.username }}
+      </p>
+    </div>
+    <a href="{{ url_for('usuarios') }}" class="btn-ghost" style="padding:6px 12px; font-size:13px; min-height:34px;">
+      ← Voltar aos Usuários
+    </a>
   </div>
+</div>
 
-  <div style="margin-bottom:12px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Área / Papel</label>
-    <select name="role" class="input-vintage">
-      {% for opt in ['Admin','Financeiro','Estoque','Producao','Vendas','Relatorios',''] %}
-      <option value="{{ opt }}" {% if usuario.role == opt %}selected{% endif %}>{{ opt if opt else 'Nenhum/Limitado' }}</option>
-      {% endfor %}
-    </select>
-  </div>
+<div class="card" style="padding:20px; max-width:480px;">
+  <form method="post">
+    <div style="margin-bottom:14px;">
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        Nome de Usuário (Login)
+      </label>
+      <input name="username" value="{{ usuario.username }}" readonly class="input-vintage" style="background:rgba(0,0,0,0.03); cursor:not-allowed;">
+    </div>
 
-  <div style="margin-bottom:12px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px;">Nova senha (opcional)</label>
-    <input name="password" type="password" class="input-vintage" placeholder="Deixe em branco para manter a senha atual">
-  </div>
+    <div style="margin-bottom:14px;">
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        Papel / Nível de Acesso
+      </label>
+      <select name="role" class="input-vintage">
+        <option value="">(Sem papel / Acesso restrito)</option>
+        {% for p in papeis %}
+          <option value="{{ p.name }}" {% if usuario.role == p.name %}selected{% endif %}>
+            {{ p.name }}{% if p.name == 'Admin' %} (Acesso Total){% elif p.description %} — {{ p.description }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
 
-  <button type="submit" class="btn-primary">💾 Salvar alterações</button>
-</form>
+    <div style="margin-bottom:20px;">
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        Nova Senha <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+      </label>
+      <input name="password" type="password" class="input-vintage" placeholder="Deixe em branco para manter a senha atual">
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button type="submit" class="btn-primary" style="width:auto; min-width:180px;">
+        💾 Salvar Alterações
+      </button>
+      <a href="{{ url_for('usuarios') }}" class="btn-ghost" style="width:auto; padding:12px 18px;">
+        Cancelar
+      </a>
+    </div>
+  </form>
+</div>
 
 {% endblock %}
