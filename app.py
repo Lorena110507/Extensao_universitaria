@@ -1786,6 +1786,11 @@ def adicionar():
 
         nome = request.form.get("nome", "").strip()
         categoria = request.form.get("categoria", "Outros")
+        # Se selecionou "Outros" e digitou uma categoria customizada, usar ela
+        if categoria == "Outros":
+            cat_custom = request.form.get("categoria_custom", "").strip()
+            if cat_custom:
+                categoria = cat_custom
         gtin = request.form.get("gtin", "").strip()
 
         try:
@@ -1866,6 +1871,11 @@ def baixa():
         except Exception:
             qtd = 0
         motivo = request.form.get("motivo", "").strip()
+        # Se selecionou "Outro" e digitou um motivo customizado, usar ele
+        if motivo == "Outro":
+            motivo_custom = request.form.get("motivo_custom", "").strip()
+            if motivo_custom:
+                motivo = motivo_custom
 
         # validation: material must exist
         if not m:

@@ -53,11 +53,19 @@
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
       {% for motivo in motivos %}
       <label style="display:flex; align-items:center; gap:8px; background:var(--card);
-                    border:2px solid var(--border); border-radius:12px; padding:10px 12px; cursor:pointer;">
-        <input type="radio" name="motivo" value="{{ motivo }}" style="accent-color:var(--primary); width:16px; height:16px;">
+                    border:2px solid var(--border); border-radius:12px; padding:10px 12px; cursor:pointer;" class="motivo-label">
+        <input type="radio" name="motivo" value="{{ motivo }}" onchange="highlightMotivo()" style="accent-color:var(--primary); width:16px; height:16px;">
         <span class="font-crimson" style="font-size:14px; color:var(--text);">{{ motivo }}</span>
       </label>
       {% endfor %}
+      <label style="display:flex; align-items:center; gap:8px; background:var(--card);
+                    border:2px solid var(--border); border-radius:12px; padding:10px 12px; cursor:pointer;" class="motivo-label" id="lbl-motivo-outro">
+        <input type="radio" name="motivo" value="Outro" onchange="highlightMotivo()" style="accent-color:var(--primary); width:16px; height:16px;">
+        <span class="font-crimson" style="font-size:14px; color:var(--text);">🔹 Outro</span>
+      </label>
+    </div>
+    <div id="custom-motivo-box" style="display:none; margin-top:10px;">
+      <input name="motivo_custom" id="motivo_custom" placeholder="Digite o motivo..." class="input-vintage" style="font-size:16px !important;">
     </div>
   </div>
 
@@ -108,5 +116,24 @@
   });
 
   atualizarInfo();
+
+  function highlightMotivo() {
+    let selectedVal = '';
+    document.querySelectorAll('.motivo-label').forEach(el => {
+      const inp = el.querySelector('input[type=radio]');
+      el.style.borderColor = inp.checked ? 'var(--primary)' : 'var(--border)';
+      el.style.background  = inp.checked ? 'var(--accent-lt)' : 'var(--card)';
+      if (inp.checked) selectedVal = inp.value;
+    });
+    const customBox = document.getElementById('custom-motivo-box');
+    const customInp = document.getElementById('motivo_custom');
+    if (selectedVal === 'Outro') {
+      customBox.style.display = 'block';
+      customInp.focus();
+    } else {
+      customBox.style.display = 'none';
+      customInp.value = '';
+    }
+  }
 </script>
 {% endblock %}

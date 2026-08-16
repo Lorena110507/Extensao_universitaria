@@ -45,6 +45,9 @@
       </label>
       {% endfor %}
     </div>
+    <div id="custom-cat-box" style="display:none; margin-top:10px;">
+      <input name="categoria_custom" id="categoria_custom" placeholder="Digite a nova categoria..." class="input-vintage" style="font-size:16px !important;">
+    </div>
   </div>
 
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px;">
@@ -99,11 +102,22 @@
 {% block scripts %}
 <script>
 function highlightCat() {
+  let selectedVal = '';
   document.querySelectorAll('[id^="lbl-"]').forEach(el => {
     const inp = el.querySelector('input[type=radio]');
     el.style.borderColor = inp.checked ? 'var(--primary)' : 'var(--border)';
     el.style.background  = inp.checked ? 'var(--accent-lt)' : 'var(--card)';
+    if (inp.checked) selectedVal = inp.value;
   });
+  const customBox = document.getElementById('custom-cat-box');
+  const customInp = document.getElementById('categoria_custom');
+  if (selectedVal === 'Outros') {
+    customBox.style.display = 'block';
+    customInp.focus();
+  } else {
+    customBox.style.display = 'none';
+    customInp.value = '';
+  }
 }
 highlightCat();
 document.querySelectorAll('input[name=categoria]').forEach(r => r.addEventListener('change', highlightCat));
