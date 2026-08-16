@@ -1,34 +1,86 @@
 {% extends "base.html" %}
 {% set titulo_pagina = "Usuários" %}
+{% set subtitulo = "Gestão de Acessos e Contas" %}
 {% block conteudo %}
 
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-  <h3 class="font-serif">Usuários</h3>
-  <div style="display:flex; gap:8px;">
-    <a href="{{ url_for('usuarios_novo') }}" class="btn-primary" style="padding:8px 12px; font-size:14px;">➕ Novo Usuário</a>
-    <a href="{{ url_for('roles') }}" class="btn-secondary" style="padding:8px 12px; font-size:14px;">🛡️ Gerenciar Permissões</a>
+<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:18px;">
+  <div>
+    <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">👥 Usuários do Sistema</h3>
+    <p class="font-crimson" style="font-size:13px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+      Contas de acesso e atribuição de funções
+    </p>
+  </div>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    {% if has_permission('usuarios', 'create') %}
+    <a href="{{ url_for('usuarios_novo') }}" class="btn-primary" style="padding:8px 14px; font-size:14px !important; min-height:38px; width:auto; display:inline-flex; align-items:center; gap:6px;">
+      ➕ Novo Usuário
+    </a>
+    {% endif %}
+    {% if has_permission('roles', 'read') %}
+    <a href="{{ url_for('roles') }}" class="btn-secondary" style="padding:8px 12px; font-size:14px; min-height:38px;">
+      🔒 Gerenciar Papéis
+    </a>
+    {% endif %}
+    {% if has_permission('roles', 'update') %}
+    <a href="{{ url_for('roles_assign') }}" class="btn-ghost" style="padding:8px 12px; font-size:14px; min-height:38px;">
+      👥 Atribuir em Massa
+    </a>
+    {% endif %}
   </div>
 </div>
 
 {% if usuarios %}
-  <div style="display:grid; gap:10px;">
+  <div style="display:grid; gap:12px;">
     {% for u in usuarios %}
-    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--card); padding:10px; border-radius:10px;">
-      <div>
-        <div style="font-weight:700;">{{ u.username }}{% if u.role %} · <span style="font-weight:600; font-size:13px; color:var(--muted);">{{ u.role }}</span>{% endif %}</div>
-        <div class="font-crimson" style="font-size:12px; color:var(--muted);">Criado em {{ u.created_at|default('N/A') }}</div>
+    {% set p_info = papeis_map.get(u.role) if (papeis_map and u.role) else None %}
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; padding:14px 16px; gap:12px;">
+      <div style="min-width:200px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">👤</span>
+          <span style="font-weight:700; font-size:16px; color:var(--text);">{{ u.username }}</span>
+          {% if u.role == 'Admin' %}
+            <span class="badge" style="background:#5c2d0e; color:#fde9c2; font-size:11px; font-weight:700; padding:2px 8px; border-radius:12px;">👑 Admin</span>
+          {% elif u.role %}
+            <span class="badge" style="background:var(--accent-lt); color:var(--primary); font-size:11px; font-weight:600; padding:2px 8px; border-radius:12px;">{{ u.role }}</span>
+          {% else %}
+            <span class="badge" style="background:#eee; color:#666; font-size:11px; padding:2px 8px; border-radius:12px;">Sem Papel</span>
+          {% endif %}
+        </div>
+        
+        <div style="margin-top:4px; font-size:12px; color:var(--muted);">
+          {% if u.role == 'Admin' %}
+            <span style="color:var(--success); font-weight:600;">Acesso Total a Todas as Abas</span>
+          {% elif p_info %}
+            <span>{{ p_info.allowed_tabs|length }} abas liberadas: 
+              {% for t in p_info.allowed_tabs[:4] %}{{ t.emoji }} {{ t.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% if p_info.allowed_tabs|length > 4 %}...{% endif %}
+            </span>
+          {% else %}
+            <span style="font-style:italic;">Acesso restrito</span>
+          {% endif %}
+        </div>
       </div>
+
       <div style="display:flex; gap:8px; align-items:center;">
-        <a href="{{ url_for('usuarios_editar', user_id=u.id) }}" class="btn-ghost">✏️ Editar</a>
-        <form method="post" action="{{ url_for('usuarios_excluir', user_id=u.id) }}" onsubmit="return confirm('Remover usuário {{ u.username }}?');">
-          <button type="submit" class="btn-ghost">🗑️ Remover</button>
+        {% if has_permission('usuarios', 'update') %}
+        <a href="{{ url_for('usuarios_editar', user_id=u.id) }}" class="btn-ghost" style="padding:6px 12px; font-size:13px; min-height:34px;">
+          ✏️ Editar
+        </a>
+        {% endif %}
+        {% if has_permission('usuarios', 'delete') and (not g.get('user') or g.user.get('id') != u.id) %}
+        <form method="post" action="{{ url_for('usuarios_excluir', user_id=u.id) }}" onsubmit="return confirm('Remover o usuário {{ u.username }} do sistema?');" style="margin:0;">
+          <button type="submit" class="btn-ghost" style="padding:6px 12px; font-size:13px; min-height:34px; color:var(--danger); border-color:var(--danger-lt);">
+            🗑️ Remover
+          </button>
         </form>
+        {% endif %}
       </div>
     </div>
     {% endfor %}
   </div>
 {% else %}
-  <p class="font-crimson" style="color:var(--muted);">Nenhum usuário cadastrado.</p>
+  <div class="card" style="padding:24px; text-align:center;">
+    <p class="font-crimson" style="color:var(--muted); font-size:15px;">Nenhum usuário cadastrado.</p>
+  </div>
 {% endif %}
 
 {% endblock %}

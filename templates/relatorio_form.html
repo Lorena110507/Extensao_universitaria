@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Editar Relatório" if relatorio else "Novo Relatório Personalizado" %}
+{% block conteudo %}
+
+<div style="max-width:700px; margin:0 auto;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+    <div>
+      <h2 class="font-serif" style="margin:0; font-size:22px; color:var(--primary); font-weight:800;">
+        {{ "✏️ Editar Relatório" if relatorio else "➕ Criar Relatório Personalizado" }}
+      </h2>
+      <p class="font-crimson" style="margin:2px 0 0 0; font-size:13px; color:var(--muted); font-style:italic;">
+        Configure o escopo de dados, filtros e o tipo de gráfico visual para acompanhar
+      </p>
+    </div>
+    <a href="{{ url_for('alertas') }}" class="btn-ghost" style="padding:6px 12px; font-size:13px;">
+      ← Voltar
+    </a>
+  </div>
+
+  <div class="card" style="padding:22px;">
+    <form method="post">
+      <!-- Título -->
+      <div style="margin-bottom:16px;">
+        <label class="font-serif" style="display:block; font-size:13px; font-weight:700; color:var(--primary); margin-bottom:6px;">
+          Título do Relatório *
+        </label>
+        <input name="titulo" type="text" required placeholder="Ex: Análise de Couros e Forros Críticos"
+               value="{{ relatorio.titulo if relatorio else '' }}" class="input-vintage" style="width:100%;">
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; margin-bottom:16px;">
+        <!-- Tipo de Relatório / Escopo -->
+        <div>
+          <label class="font-serif" style="display:block; font-size:13px; font-weight:700; color:var(--primary); margin-bottom:6px;">
+            Módulo / Escopo de Dados
+          </label>
+          <select name="tipo" id="selectTipo" class="input-vintage" style="width:100%;">
+            <option value="estoque" {{ 'selected' if relatorio and relatorio.tipo == 'estoque' }}>📦 Estoque &amp; Materiais</option>
+            <option value="financeiro" {{ 'selected' if relatorio and relatorio.tipo == 'financeiro' }}>💰 Financeiro &amp; Despesas</option>
+            <option value="pedidos" {{ 'selected' if relatorio and relatorio.tipo == 'pedidos' }}>🧾 Pedidos dos Clientes</option>
+            <option value="movimentacoes" {{ 'selected' if relatorio and relatorio.tipo == 'movimentacoes' }}>🔄 Movimentações &amp; Baixas</option>
+            <option value="sobras" {{ 'selected' if relatorio and relatorio.tipo == 'sobras' }}>♻️ Sobras &amp; Retalhos</option>
+            <option value="geral" {{ 'selected' if relatorio and relatorio.tipo == 'geral' }}>🌐 Balanço Geral Consolidado</option>
+          </select>
+        </div>
+
+        <!-- Tipo de Gráfico -->
+        <div>
+          <label class="font-serif" style="display:block; font-size:13px; font-weight:700; color:var(--primary); margin-bottom:6px;">
+            Visualização / Gráfico
+          </label>
+          <select name="tipo_grafico" class="input-vintage" style="width:100%;">
+            <option value="bar" {{ 'selected' if relatorio and relatorio.tipo_grafico == 'bar' }}>📊 Gráfico de Barras</option>
+            <option value="doughnut" {{ 'selected' if relatorio and relatorio.tipo_grafico == 'doughnut' }}>🍩 Gráfico de Rosca (Doughnut)</option>
+            <option value="pie" {{ 'selected' if relatorio and relatorio.tipo_grafico == 'pie' }}>🥧 Gráfico de Pizza (Pie)</option>
+            <option value="line" {{ 'selected' if relatorio and relatorio.tipo_grafico == 'line' }}>📈 Gráfico de Linhas</option>
+            <option value="polarArea" {{ 'selected' if relatorio and relatorio.tipo_grafico == 'polarArea' }}>🎯 Gráfico Polar / Área</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Filtros Avançados -->
+      <div style="background:rgba(124,61,18,0.03); border:1px solid var(--border); border-radius:6px; padding:14px; margin-bottom:18px;">
+        <p class="font-serif" style="margin:0 0 10px 0; font-size:13px; font-weight:700; color:var(--primary);">
+          ⚙️ Filtros Opcionais
+        </p>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:10px;">
+          <!-- Categoria -->
+          <div>
+            <label class="font-crimson" style="display:block; font-size:12px; color:var(--muted); font-style:italic; margin-bottom:4px;">
+              Filtrar por Categoria
+            </label>
+            <select name="categoria_filtro" class="input-vintage" style="width:100%;">
+              <option value="">(Todas as Categorias)</option>
+              {% for c in categorias %}
+              <option value="{{ c }}" {{ 'selected' if relatorio and relatorio.categoria_filtro == c }}>{{ c }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Status Pedido -->
+          <div>
+            <label class="font-crimson" style="display:block; font-size:12px; color:var(--muted); font-style:italic; margin-bottom:4px;">
+              Filtrar por Status (Pedidos)
+            </label>
+            <select name="status_filtro" class="input-vintage" style="width:100%;">
+              <option value="">(Todos os Status)</option>
+              {% for s in status_pedido %}
+              <option value="{{ s }}" {{ 'selected' if relatorio and relatorio.status_filtro == s }}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <!-- Checkbox Apenas Críticos -->
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:8px;">
+          <input type="checkbox" name="apenas_criticos" value="1" {{ 'checked' if relatorio and relatorio.apenas_criticos }}>
+          <span class="font-crimson" style="font-size:13px; color:var(--text);">
+            ⚠️ Exibir apenas materiais em nível crítico (estoque abaixo do mínimo)
+          </span>
+        </label>
+      </div>
+
+      <!-- Observações -->
+      <div style="margin-bottom:20px;">
+        <label class="font-serif" style="display:block; font-size:13px; font-weight:700; color:var(--primary); margin-bottom:6px;">
+          Observações / Notas do Gestor
+        </label>
+        <textarea name="observacoes" rows="3" class="input-vintage" style="width:100%; resize:vertical;"
+                  placeholder="Anotações sobre a finalidade deste relatório, metas ou instruções de reposição...">{{ relatorio.observacoes if relatorio else '' }}</textarea>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <a href="{{ url_for('alertas') }}" class="btn-ghost" style="padding:8px 14px;">Cancelar</a>
+        <button type="submit" class="btn-primary" style="padding:8px 20px;">
+          {{ "💾 Salvar Alterações" if relatorio else "✨ Criar Relatório" }}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

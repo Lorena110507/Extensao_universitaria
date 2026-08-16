@@ -28,12 +28,23 @@
   </p>
 </div>
 
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-  <div class="ornament" style="margin:16px 0;">· · ·</div>
-  <div style="margin-left:12px; display:flex; gap:8px;">
-    <a href="{{ url_for('exportar_financeiro_pdf') }}" class="btn-primary" style="padding:8px 12px;">📄 Exportar PDF</a>
-<a href="{{ url_for('exportar_tudo') }}" class="btn-ghost" style="padding:8px 10px;">⬇️ Exportar JSON</a>
-<a href="{{ url_for('exportar_tudo_xlsx') }}" class="btn-primary" style="padding:8px 12px; background:var(--accent);">📊 Exportar Excel</a>
+<div class="card" style="padding:14px 16px; margin-bottom:20px; background:rgba(124,61,18,0.03); border:1px dashed var(--border);">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+    <div>
+      <p class="font-serif" style="margin:0; font-size:15px; font-weight:700; color:var(--primary);">📥 Exportação de Relatórios &amp; Dados</p>
+      <p class="font-crimson" style="margin:2px 0 0 0; font-size:12px; color:var(--muted); font-style:italic;">Baixe o balanço formatado em PDF ou a planilha em Excel com todas as tabelas</p>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <a href="{{ url_for('exportar_financeiro_pdf') }}" class="btn-primary" style="padding:8px 14px; font-size:13px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
+        📄 Baixar PDF Formatado
+      </a>
+      <a href="{{ url_for('exportar_tudo_xlsx') }}" class="btn-secondary" style="padding:8px 14px; font-size:13px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
+        📊 Planilha Excel (Tabelas)
+      </a>
+      <a href="{{ url_for('exportar_tudo') }}" class="btn-ghost" style="padding:8px 10px; font-size:12px; min-height:36px;" title="Backup completo em JSON">
+        ⬇️ Backup JSON
+      </a>
+    </div>
   </div>
 </div>
 
