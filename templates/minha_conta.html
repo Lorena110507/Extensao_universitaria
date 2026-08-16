@@ -5,7 +5,7 @@
 
 <div style="margin-bottom:18px;">
   <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">👤 Meu Perfil</h3>
-  <p class="font-crimson" style="font-size:13px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+  <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
     Gerencie seus dados pessoais, foto de identificação e senha de acesso
   </p>
 </div>
@@ -32,18 +32,18 @@
       </div>
 
       <div style="flex:1; min-width:200px;">
-        <label for="avatar-input" class="btn-secondary" style="display:inline-block; cursor:pointer; padding:8px 14px; font-size:13px; font-weight:700; width:auto; text-align:center;">
+        <label for="avatar-input" class="btn-secondary" style="display:inline-block; cursor:pointer; padding:8px 14px; font-size:15px; font-weight:700; width:auto; text-align:center;">
           📷 Escolher Nova Foto
         </label>
         <input type="file" id="avatar-input" name="avatar" accept="image/*" style="display:none;" onchange="previewFile(this)">
         
-        <p class="font-crimson" style="font-size:12px; color:var(--muted); margin:6px 0 0 0; font-style:italic;">
+        <p class="font-crimson" style="font-size:14px; color:var(--muted); margin:6px 0 0 0; font-style:italic;">
           Formatos aceitos: JPG, PNG, WEBP ou GIF (máx 5MB)
         </p>
 
         {% if user.avatar %}
         <div style="margin-top:8px;">
-          <label style="font-size:13px; color:var(--danger); cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+          <label style="font-size:15px; color:var(--danger); cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
             <input type="checkbox" name="remover_avatar" value="1" style="accent-color:var(--danger);" onchange="toggleRemoveAvatar(this)">
             🗑️ Remover foto de perfil atual
           </label>
@@ -55,7 +55,7 @@
     <!-- Campos de Nome e Login -->
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px;">
       <div>
-        <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
           Como deseja ser chamado (Nome Completo / Apelido)
         </label>
         <input name="nome" value="{{ user.nome or '' }}" class="input-vintage"
@@ -63,37 +63,40 @@
       </div>
 
       <div>
-        <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
           Login de Acesso (Nome de Usuário)
         </label>
         <input value="{{ user.username }}" readonly class="input-vintage"
                style="background:rgba(0,0,0,0.03); cursor:not-allowed; color:var(--muted);">
-        <span style="font-size:11px; color:var(--muted);">O nome de acesso é gerenciado pelo administrador.</span>
+        <span style="font-size:13px; color:var(--muted);">O nome de acesso é gerenciado pelo administrador.</span>
       </div>
     </div>
 
     <!-- Resumo do Papel e Abas Autorizadas -->
     <div style="margin-top:16px; padding:12px; background:rgba(124,61,18,0.04); border-radius:8px; border:1px solid var(--border);">
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-        <span style="font-weight:700; font-size:13px; color:var(--primary);">Meu Papel Atual:</span>
-        {% if user.role == 'Admin' %}
-          <span class="badge" style="background:#5c2d0e; color:#fde9c2; font-size:11px; font-weight:700; padding:2px 8px; border-radius:12px;">👑 Administrador (Acesso Total)</span>
-        {% elif user.role %}
-          <span class="badge" style="background:var(--accent-lt); color:var(--primary); font-size:11px; font-weight:600; padding:2px 8px; border-radius:12px;">{{ user.role }}</span>
-        {% else %}
-          <span class="badge" style="background:#eee; color:#666; font-size:11px; padding:2px 8px; border-radius:12px;">Sem Papel Vinculado</span>
+        <span style="font-weight:700; font-size:15px; color:var(--primary);">Meus Papéis Atuais:</span>
+        {% set uroles = usuario_roles_lista(user) %}
+        {% if 'Admin' in uroles %}
+          <span class="badge" style="background:#5c2d0e; color:#fde9c2; font-size:13px; font-weight:700; padding:2px 8px; border-radius:12px;">👑 Administrador (Acesso Total)</span>
+        {% endif %}
+        {% for r in uroles if r != 'Admin' %}
+          <span class="badge" style="background:var(--accent-lt); color:var(--primary); font-size:13px; font-weight:600; padding:2px 8px; border-radius:12px;">{{ r }}</span>
+        {% endfor %}
+        {% if not uroles %}
+          <span class="badge" style="background:#eee; color:#666; font-size:13px; padding:2px 8px; border-radius:12px;">Sem Papel Vinculado</span>
         {% endif %}
       </div>
       
-      {% if user.role == 'Admin' %}
-        <p class="font-crimson" style="font-size:12px; color:var(--muted); margin:0; font-style:italic;">
+      {% if 'Admin' in uroles %}
+        <p class="font-crimson" style="font-size:14px; color:var(--muted); margin:0; font-style:italic;">
           Você possui privilégios de Administrador com acesso e controle de todas as abas e relatórios.
         </p>
       {% elif user_role_info and user_role_info.allowed_tabs %}
-        <div style="font-size:12px; color:var(--text); display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">
-          <span style="color:var(--muted); font-size:11px; width:100%;">Abas disponíveis no seu menu:</span>
+        <div style="font-size:14px; color:var(--text); display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">
+          <span style="color:var(--muted); font-size:13px; width:100%;">Abas disponíveis no seu menu:</span>
           {% for t in user_role_info.allowed_tabs %}
-            <span style="background:var(--card); border:1px solid var(--border); padding:2px 6px; border-radius:6px; font-size:11px;">
+            <span style="background:var(--card); border:1px solid var(--border); padding:2px 6px; border-radius:6px; font-size:13px;">
               {{ t.emoji }} {{ t.name }}
             </span>
           {% endfor %}
@@ -107,13 +110,13 @@
     <h4 class="font-serif" style="margin:0 0 4px 0; color:var(--primary); font-size:17px;">
       🔒 Alterar Senha de Acesso
     </h4>
-    <p class="font-crimson" style="font-size:13px; color:var(--muted); margin:0 0 14px 0; font-style:italic;">
+    <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:0 0 14px 0; font-style:italic;">
       Preencha estes campos apenas se desejar modificar sua senha de login.
     </p>
 
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px;">
       <div>
-        <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
           Senha Atual
         </label>
         <input name="current_password" type="password" class="input-vintage"
@@ -121,7 +124,7 @@
       </div>
 
       <div>
-        <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
           Nova Senha
         </label>
         <input name="new_password" type="password" class="input-vintage"
@@ -129,7 +132,7 @@
       </div>
 
       <div>
-        <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
           Confirmar Nova Senha
         </label>
         <input name="new_password2" type="password" class="input-vintage"

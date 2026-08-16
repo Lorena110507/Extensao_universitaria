@@ -7,14 +7,14 @@
   <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
 
   <div style="margin-bottom:12px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
       🔍 BUSCAR MATERIAL (nome ou GTIN)
     </label>
-    <input id="busca-material" placeholder="Digite o nome ou escaneie o GTIN..." class="input-vintage" style="font-size:16px !important;" autocomplete="off">
+    <input id="busca-material" placeholder="Digite o nome ou escaneie o GTIN..." class="input-vintage" style="font-size:17px !important;" autocomplete="off">
   </div>
 
   <div style="margin-bottom:20px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:14px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:15px;">
       📦 QUAL MATERIAL FOI USADO?
     </label>
     <select name="material_id" id="sel-mat" onchange="atualizarInfo()" required class="input-vintage" style="font-size:17px !important; font-family:'Crimson Text',serif;">
@@ -31,7 +31,7 @@
 
   <div id="info-box" style="display:none; background:var(--accent-lt); border:1.5px solid var(--accent);
        border-radius:12px; padding:14px 16px; margin-bottom:20px; text-align:center;">
-    <p class="font-crimson" style="color:var(--primary); font-size:16px; font-style:italic;">Estoque atual</p>
+    <p class="font-crimson" style="color:var(--primary); font-size:17px; font-style:italic;">Estoque atual</p>
     <p class="font-serif" style="font-size:32px; font-weight:700; color:var(--primary); line-height:1.2;">
       <span id="qtd-atual">—</span>
       <span id="unid-atual" style="font-size:18px; font-weight:400;"></span>
@@ -39,7 +39,7 @@
   </div>
 
   <div style="margin-bottom:20px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:14px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:15px;">
       📏 QUANTO FOI USADO?
     </label>
     <input name="quantidade" type="number" min="0.01" step="0.01" placeholder="0" required class="input-vintage" id="inp-qtd" style="text-align:center; font-size:36px !important; font-weight:800; color:var(--primary); height:80px;">
@@ -47,7 +47,7 @@
   </div>
 
   <div style="margin-bottom:24px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:14px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:15px;">
       💬 MOTIVO
     </label>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
@@ -55,17 +55,17 @@
       <label style="display:flex; align-items:center; gap:8px; background:var(--card);
                     border:2px solid var(--border); border-radius:12px; padding:10px 12px; cursor:pointer;" class="motivo-label">
         <input type="radio" name="motivo" value="{{ motivo }}" onchange="highlightMotivo()" style="accent-color:var(--primary); width:16px; height:16px;">
-        <span class="font-crimson" style="font-size:14px; color:var(--text);">{{ motivo }}</span>
+        <span class="font-crimson" style="font-size:15px; color:var(--text);">{{ motivo }}</span>
       </label>
       {% endfor %}
       <label style="display:flex; align-items:center; gap:8px; background:var(--card);
                     border:2px solid var(--border); border-radius:12px; padding:10px 12px; cursor:pointer;" class="motivo-label" id="lbl-motivo-outro">
         <input type="radio" name="motivo" value="Outro" onchange="highlightMotivo()" style="accent-color:var(--primary); width:16px; height:16px;">
-        <span class="font-crimson" style="font-size:14px; color:var(--text);">🔹 Outro</span>
+        <span class="font-crimson" style="font-size:15px; color:var(--text);">🔹 Outro</span>
       </label>
     </div>
     <div id="custom-motivo-box" style="display:none; margin-top:10px;">
-      <input name="motivo_custom" id="motivo_custom" placeholder="Digite o motivo..." class="input-vintage" style="font-size:16px !important;">
+      <input name="motivo_custom" id="motivo_custom" placeholder="Digite o motivo..." class="input-vintage" style="font-size:17px !important;">
     </div>
   </div>
 
@@ -87,11 +87,22 @@
   function atualizarInfo() {
     const opt = selMat.selectedOptions[0];
     const box = document.getElementById('info-box');
+    const inpQtd = document.getElementById('inp-qtd');
     if (opt && opt.value) {
       document.getElementById('qtd-atual').textContent = opt.dataset.qtd;
       document.getElementById('unid-atual').textContent = opt.dataset.unid;
       document.getElementById('label-unid').textContent = opt.dataset.unid;
       box.style.display = 'block';
+      const unid = (opt.dataset.unid || '').toLowerCase();
+      const inteira = (unid === 'unidades' || unid === 'unidade' || unid === 'unid');
+      if (inteira) {
+        inpQtd.step = '1';
+        inpQtd.min = '1';
+      } else {
+        inpQtd.step = '0.01';
+        inpQtd.min = '0.01';
+      }
+      if (inpQtd.value) inpQtd.value = '';
     } else {
       box.style.display = 'none';
     }

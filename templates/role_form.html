@@ -9,11 +9,11 @@
       <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">
         {% if is_novo %}➕ Criar Novo Papel{% else %}✏️ Configurar Permissões: {{ role.name }}{% endif %}
       </h3>
-      <p class="font-crimson" style="font-size:13px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+      <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
         Selecione exatamente quais abas este papel poderá visualizar e as ações permitidas
       </p>
     </div>
-    <a href="{{ url_for('roles') }}" class="btn-ghost" style="padding:6px 12px; font-size:13px; min-height:34px;">
+    <a href="{{ url_for('roles') }}" class="btn-ghost" style="padding:6px 12px; font-size:15px; min-height:34px;">
       ← Voltar aos Papéis
     </a>
   </div>
@@ -25,19 +25,19 @@
     <h4 class="font-serif" style="margin:0 0 12px 0; color:var(--primary);">Informações do Papel</h4>
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px;">
       <div>
-        <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
           Nome do Papel <span style="color:var(--danger);">*</span>
         </label>
         <input name="name" value="{{ role.name if role else '' }}" required class="input-vintage"
                placeholder="Ex: Almoxarife, Gerente de Vendas"
                {% if role and role.name == 'Admin' %}readonly style="background:rgba(0,0,0,0.03); cursor:not-allowed;"{% endif %}>
         {% if role and role.name == 'Admin' %}
-        <span style="font-size:11px; color:var(--muted);">O nome do papel Administrador não pode ser alterado.</span>
+        <span style="font-size:13px; color:var(--muted);">O nome do papel Administrador não pode ser alterado.</span>
         {% endif %}
       </div>
 
       <div>
-        <label style="display:block; font-weight:700; color:var(--primary); font-size:13px; margin-bottom:4px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
           Descrição / Finalidade
         </label>
         <input name="description" value="{{ role.description if role else '' }}" class="input-vintage"
@@ -49,7 +49,7 @@
   {% if role and role.name == 'Admin' %}
   <div class="card" style="padding:16px; margin-bottom:18px; border-left:4px solid var(--primary); background:#fff9ee;">
     <p style="margin:0; font-weight:700; color:var(--primary);">👑 Administrador do Sistema</p>
-    <p class="font-crimson" style="margin:4px 0 0 0; font-size:13px; color:var(--muted);">
+    <p class="font-crimson" style="margin:4px 0 0 0; font-size:15px; color:var(--muted);">
       O papel <strong>Admin</strong> possui acesso irrestrito e automático a todas as abas e operações (CRUD completo). Suas permissões não precisam ser alteradas manualmente.
     </p>
   </div>
@@ -60,20 +60,20 @@
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
       <div>
         <h4 class="font-serif" style="margin:0; color:var(--primary);">Matriz de Acesso por Aba</h4>
-        <p class="font-crimson" style="font-size:13px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+        <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
           Abas desmarcadas não aparecerão no menu de navegação do usuário.
         </p>
       </div>
 
       <!-- Presets Globais Rápidos -->
       <div style="display:flex; gap:6px; flex-wrap:wrap;">
-        <button type="button" class="btn-ghost" onclick="setAllPermissions('all')" style="padding:4px 8px; font-size:12px; min-height:30px;">
+        <button type="button" class="btn-ghost" onclick="setAllPermissions('all')" style="padding:4px 8px; font-size:14px; min-height:30px;">
           ⚡ Acesso Total
         </button>
-        <button type="button" class="btn-ghost" onclick="setAllPermissions('read_only')" style="padding:4px 8px; font-size:12px; min-height:30px;">
+        <button type="button" class="btn-ghost" onclick="setAllPermissions('read_only')" style="padding:4px 8px; font-size:14px; min-height:30px;">
           👁️ Somente Leitura
         </button>
-        <button type="button" class="btn-ghost" onclick="setAllPermissions('none')" style="padding:4px 8px; font-size:12px; min-height:30px; color:var(--danger);">
+        <button type="button" class="btn-ghost" onclick="setAllPermissions('none')" style="padding:4px 8px; font-size:14px; min-height:30px; color:var(--danger);">
           🚫 Desmarcar Tudo
         </button>
       </div>
@@ -83,18 +83,18 @@
       <table style="width:100%; border-collapse:collapse; min-width:540px;">
         <thead>
           <tr style="border-bottom:2px solid var(--border); background:rgba(124,61,18,0.04);">
-            <th style="text-align:left; padding:10px 12px; font-size:13px; color:var(--primary);">Aba / Módulo</th>
-            <th style="text-align:center; padding:10px 6px; font-size:12px; color:var(--muted); width:130px;">Ações Rápidas</th>
-            <th style="text-align:center; padding:10px 6px; font-size:13px; color:var(--primary); width:70px;">
+            <th style="text-align:left; padding:10px 12px; font-size:15px; color:var(--primary);">Aba / Módulo</th>
+            <th style="text-align:center; padding:10px 6px; font-size:14px; color:var(--muted); width:130px;">Ações Rápidas</th>
+            <th style="text-align:center; padding:10px 6px; font-size:15px; color:var(--primary); width:70px;">
               <span title="Permite cadastrar e criar novos registros">Criar (C)</span>
             </th>
-            <th style="text-align:center; padding:10px 6px; font-size:13px; color:var(--primary); width:70px;">
+            <th style="text-align:center; padding:10px 6px; font-size:15px; color:var(--primary); width:70px;">
               <span title="Permite acessar a aba e visualizar listagens">Ver (R)</span>
             </th>
-            <th style="text-align:center; padding:10px 6px; font-size:13px; color:var(--primary); width:70px;">
+            <th style="text-align:center; padding:10px 6px; font-size:15px; color:var(--primary); width:70px;">
               <span title="Permite modificar e atualizar registros existentes">Editar (U)</span>
             </th>
-            <th style="text-align:center; padding:10px 6px; font-size:13px; color:var(--primary); width:70px;">
+            <th style="text-align:center; padding:10px 6px; font-size:15px; color:var(--primary); width:70px;">
               <span title="Permite deletar e excluir registros">Excluir (D)</span>
             </th>
           </tr>
@@ -107,16 +107,16 @@
               <div style="display:flex; align-items:center; gap:8px;">
                 <span style="font-size:20px;">{{ tab.emoji }}</span>
                 <div>
-                  <div style="font-weight:700; font-size:14px; color:var(--text);">{{ tab.name }}</div>
-                  <div class="font-crimson" style="font-size:12px; color:var(--muted); font-style:italic;">{{ tab.desc }}</div>
+                  <div style="font-weight:700; font-size:15px; color:var(--text);">{{ tab.name }}</div>
+                  <div class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic;">{{ tab.desc }}</div>
                 </div>
               </div>
             </td>
             <td style="text-align:center; padding:6px;">
               <div style="display:inline-flex; gap:3px;">
-                <button type="button" class="btn-ghost" style="padding:2px 6px; font-size:11px; min-height:24px;" onclick="setRowPreset('{{ tab.id }}', 'full')">Total</button>
-                <button type="button" class="btn-ghost" style="padding:2px 6px; font-size:11px; min-height:24px;" onclick="setRowPreset('{{ tab.id }}', 'read')">Ver</button>
-                <button type="button" class="btn-ghost" style="padding:2px 6px; font-size:11px; min-height:24px; color:var(--muted);" onclick="setRowPreset('{{ tab.id }}', 'none')">Off</button>
+                <button type="button" class="btn-ghost" style="padding:2px 6px; font-size:13px; min-height:24px;" onclick="setRowPreset('{{ tab.id }}', 'full')">Total</button>
+                <button type="button" class="btn-ghost" style="padding:2px 6px; font-size:13px; min-height:24px;" onclick="setRowPreset('{{ tab.id }}', 'read')">Ver</button>
+                <button type="button" class="btn-ghost" style="padding:2px 6px; font-size:13px; min-height:24px; color:var(--muted);" onclick="setRowPreset('{{ tab.id }}', 'none')">Off</button>
               </div>
             </td>
             <td style="text-align:center; padding:6px;">

@@ -8,11 +8,11 @@
       <h2 class="font-serif" style="margin:0; font-size:22px; color:var(--primary); font-weight:800;">
         {{ "✏️ Editar Relatório" if relatorio else "➕ Criar Relatório Personalizado" }}
       </h2>
-      <p class="font-crimson" style="margin:2px 0 0 0; font-size:13px; color:var(--muted); font-style:italic;">
+      <p class="font-crimson" style="margin:2px 0 0 0; font-size:15px; color:var(--muted); font-style:italic;">
         Configure o escopo de dados, filtros e o tipo de gráfico visual para acompanhar
       </p>
     </div>
-    <a href="{{ url_for('alertas') }}" class="btn-ghost" style="padding:6px 12px; font-size:13px;">
+    <a href="{{ url_for('alertas') }}" class="btn-ghost" style="padding:6px 12px; font-size:15px;">
       ← Voltar
     </a>
   </div>
@@ -21,7 +21,7 @@
     <form method="post">
       <!-- Título -->
       <div style="margin-bottom:16px;">
-        <label class="font-serif" style="display:block; font-size:13px; font-weight:700; color:var(--primary); margin-bottom:6px;">
+        <label class="font-serif" style="display:block; font-size:15px; font-weight:700; color:var(--primary); margin-bottom:6px;">
           Título do Relatório *
         </label>
         <input name="titulo" type="text" required placeholder="Ex: Análise de Couros e Forros Críticos"
@@ -31,7 +31,7 @@
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; margin-bottom:16px;">
         <!-- Tipo de Relatório / Escopo -->
         <div>
-          <label class="font-serif" style="display:block; font-size:13px; font-weight:700; color:var(--primary); margin-bottom:6px;">
+          <label class="font-serif" style="display:block; font-size:15px; font-weight:700; color:var(--primary); margin-bottom:6px;">
             Módulo / Escopo de Dados
           </label>
           <select name="tipo" id="selectTipo" class="input-vintage" style="width:100%;">
@@ -46,7 +46,7 @@
 
         <!-- Tipo de Gráfico -->
         <div>
-          <label class="font-serif" style="display:block; font-size:13px; font-weight:700; color:var(--primary); margin-bottom:6px;">
+          <label class="font-serif" style="display:block; font-size:15px; font-weight:700; color:var(--primary); margin-bottom:6px;">
             Visualização / Gráfico
           </label>
           <select name="tipo_grafico" class="input-vintage" style="width:100%;">
@@ -61,14 +61,14 @@
 
       <!-- Filtros Avançados -->
       <div style="background:rgba(124,61,18,0.03); border:1px solid var(--border); border-radius:6px; padding:14px; margin-bottom:18px;">
-        <p class="font-serif" style="margin:0 0 10px 0; font-size:13px; font-weight:700; color:var(--primary);">
+        <p class="font-serif" style="margin:0 0 10px 0; font-size:15px; font-weight:700; color:var(--primary);">
           ⚙️ Filtros Opcionais
         </p>
 
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:10px;">
           <!-- Categoria -->
           <div>
-            <label class="font-crimson" style="display:block; font-size:12px; color:var(--muted); font-style:italic; margin-bottom:4px;">
+            <label class="font-crimson" style="display:block; font-size:14px; color:var(--muted); font-style:italic; margin-bottom:4px;">
               Filtrar por Categoria
             </label>
             <select name="categoria_filtro" class="input-vintage" style="width:100%;">
@@ -81,7 +81,7 @@
 
           <!-- Status Pedido -->
           <div>
-            <label class="font-crimson" style="display:block; font-size:12px; color:var(--muted); font-style:italic; margin-bottom:4px;">
+            <label class="font-crimson" style="display:block; font-size:14px; color:var(--muted); font-style:italic; margin-bottom:4px;">
               Filtrar por Status (Pedidos)
             </label>
             <select name="status_filtro" class="input-vintage" style="width:100%;">
@@ -96,7 +96,7 @@
         <!-- Checkbox Apenas Críticos -->
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:8px;">
           <input type="checkbox" name="apenas_criticos" value="1" {{ 'checked' if relatorio and relatorio.apenas_criticos }}>
-          <span class="font-crimson" style="font-size:13px; color:var(--text);">
+          <span class="font-crimson" style="font-size:15px; color:var(--text);">
             ⚠️ Exibir apenas materiais em nível crítico (estoque abaixo do mínimo)
           </span>
         </label>
@@ -104,7 +104,7 @@
 
       <!-- Observações -->
       <div style="margin-bottom:20px;">
-        <label class="font-serif" style="display:block; font-size:13px; font-weight:700; color:var(--primary); margin-bottom:6px;">
+        <label class="font-serif" style="display:block; font-size:15px; font-weight:700; color:var(--primary); margin-bottom:6px;">
           Observações / Notas do Gestor
         </label>
         <textarea name="observacoes" rows="3" class="input-vintage" style="width:100%; resize:vertical;"

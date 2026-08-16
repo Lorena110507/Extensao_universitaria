@@ -5,13 +5,13 @@
 
 <form method="get" style="margin-bottom:12px;">
   <input type="hidden" name="cat" value="{{ cat_ativa }}">
-  <input name="q" value="{{ q }}" placeholder="🔍  Buscar por nome ou código GTIN..." class="input-vintage" style="font-size:16px !important;">
+  <input name="q" value="{{ q }}" placeholder="🔍  Buscar por nome ou código GTIN..." class="input-vintage" style="font-size:17px !important;">
 </form>
 
 <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px;">
   {% for c in ["Todos"] + categorias %}
   <a href="{{ url_for('estoque', cat=c, q=q) }}" style="padding:7px 16px; border-radius:20px; white-space:nowrap;
-            font-size:14px; font-weight:700; text-decoration:none; flex-shrink:0;
+            font-size:15px; font-weight:700; text-decoration:none; flex-shrink:0;
             font-family:'Crimson Text',serif; font-style:italic;
             {% if cat_ativa == c %}background:var(--primary); color:#fef9f0; border:1.5px solid var(--primary);
             {% else %}background:var(--card); color:var(--muted); border:1.5px solid var(--border);{% endif %}">
@@ -45,25 +45,25 @@
         <p class="font-serif" style="font-size:17px; font-weight:700; color:var(--text); line-height:1.2;">{{ m.nome }}</p>
         <span class="tag" style="margin-top:4px; display:inline-block;">{{ m.categoria }}</span>
         {% if m.gtin %}
-        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:12px; margin-top:3px;">GTIN: {{ m.gtin }}</p>
+        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:14px; margin-top:3px;">GTIN: {{ m.gtin }}</p>
         {% endif %}
         {% if m.quantidade <= m.quantidade_minima %}
-        <p style="color:var(--danger); font-weight:700; font-size:13px; margin-top:6px;">⚠️ Estoque baixo — mínimo: {{ m.quantidade_minima }} {{ m.unidade }}</p>
+        <p style="color:var(--danger); font-weight:700; font-size:15px; margin-top:6px;">⚠️ Estoque baixo — mínimo: {{ m.quantidade_minima }} {{ m.unidade }}</p>
         {% endif %}
-        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:13px; margin-top:3px;">R$ {{ "%.2f"|format(m.custo) }} / {{ m.unidade }}</p>
+        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:15px; margin-top:3px;">{{ m.custo|moeda }} / {{ m.unidade }}</p>
       </div>
       <div style="text-align:right; flex-shrink:0;">
         <p style="font-size:26px; font-weight:800; color:{{ 'var(--danger)' if m.quantidade <= m.quantidade_minima else 'var(--success)' }}; line-height:1;">{{ m.quantidade }}</p>
-        <p class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">{{ m.unidade }}</p>
+        <p class="font-crimson" style="font-size:15px; color:var(--muted); font-style:italic;">{{ m.unidade }}</p>
       </div>
     </div>
 
     <div style="display:flex; gap:8px; margin-top:12px;">
       <button onclick="document.getElementById('entrada-{{ m.id }}').style.display =
-                       document.getElementById('entrada-{{ m.id }}').style.display === 'none' ? 'block' : 'none'" class="btn-secondary" style="flex:1; font-size:14px !important;">
+                       document.getElementById('entrada-{{ m.id }}').style.display === 'none' ? 'block' : 'none'" class="btn-secondary" style="flex:1; font-size:15px !important;">
         + Adicionar mais
       </button>
-      <a href="{{ url_for('baixa', mid=m.id) }}" class="btn-ghost" style="flex:1; font-size:14px !important;">✂️ Dar baixa</a>
+      <a href="{{ url_for('baixa', mid=m.id) }}" class="btn-ghost" style="flex:1; font-size:15px !important;">✂️ Dar baixa</a>
       <form method="post" action="{{ url_for('estoque_excluir', material_id=m.id) }}" onsubmit="return confirm('Remover {{ m.nome }}?')">
         <button class="btn-ghost" style="padding:10px 12px;">🗑️</button>
       </form>
@@ -73,14 +73,14 @@
          background:var(--accent-lt); border:1.5px solid var(--accent);
          border-radius:12px; padding:14px;">
       <form method="post" action="{{ url_for('estoque_entrada', material_id=m.id) }}">
-        <p class="font-crimson" style="font-style:italic; color:var(--primary); margin-bottom:8px; font-size:15px;">
+        <p class="font-crimson" style="font-style:italic; color:var(--primary); margin-bottom:8px; font-size:16px;">
           Quantas {{ m.unidade }} estão entrando?
         </p>
         <div style="display:flex; gap:8px;">
           <input name="quantidade" type="number" min="0.1" step="0.1" placeholder="Quantidade" class="input-vintage" style="flex:1;">
           <input name="motivo" placeholder="Motivo" class="input-vintage" style="flex:1;">
         </div>
-        <button class="btn-primary" style="margin-top:10px; font-size:15px !important;">✅ Confirmar entrada</button>
+        <button class="btn-primary" style="margin-top:10px; font-size:16px !important;">✅ Confirmar entrada</button>
       </form>
     </div>
   </div>

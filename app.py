@@ -1,9 +1,10 @@
 import json
 import os
+import re
 import uuid
 import secrets
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, make_response, session, g, send_from_directory
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -66,6 +67,110 @@ STATUS_SOBRA_BADGE = {
     "Descartado": "badge-low",
 }
 CATEGORIAS_DESPESA = ["Matéria-prima", "Aluguel", "Transporte", "Ferramentas", "Marketing", "Outros"]
+
+
+# ── Fuso horário (datas corretas no horário de Brasília) ─────────────────────
+
+def _fuso_brasil():
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo("America/Sao_Paulo")
+    except Exception:
+        return timezone(timedelta(hours=-3))
+
+
+FUSO_BR = _fuso_brasil()
+
+
+def agora():
+    """Datetime atual no fuso horário do Brasil (UTC-3)."""
+    return datetime.now(FUSO_BR)
+
+
+def formatar_reais(valor):
+    """Formata um valor monetário no padrão brasileiro (ex.: 1.234,56)."""
+    try:
+        v = float(valor or 0)
+    except (TypeError, ValueError):
+        v = 0.0
+    inteiro, decimal = f"{v:,.2f}".split(".")
+    return inteiro.replace(",", ".") + "," + decimal
+
+
+@app.template_filter("moeda")
+def filtro_moeda(valor):
+    return "R$ " + formatar_reais(valor)
+
+
+# ── Categorias consistentes e sincronizadas ───────────────────────────────────
+
+CATEGORIA_REGRA = [
+    ("Courino", ["courino", "couro", "suede", "camurca", "camurça"]),
+    ("Metal", ["metal", "mosquetao", "mosquetão", "fivela", "argola", "corrente", "ilhos", "ilhós", "gancho", "rebite", "tachinha", "alca de metal", "alça de metal"]),
+    ("Aviamento", ["ziper", "zíper", "linha", "fio", "botao", "botão", "colchete", "elastico", "elástico", "velcro", "fecho", "aviamento", "travado", "etiqueta", "laco", "laço", "renda", "passante", "gancheira"]),
+    ("Tecido", ["tecido", "algodao", "algodão", "linho", "tricoline", "voal", "crepe", "sarja", "seda", "forro", "pano", "gabardine", "oxford", "jeans", "malha"]),
+    ("Embalagem", ["embalagem", "saco", "caixa", "papel", "plastico", "plástico", "polimero", "polímero", "adesivo", "fita adesiva"]),
+]
+
+
+def sugerir_categoria(nome):
+    """Sugere uma categoria canônica a partir do nome do material."""
+    nome_l = (nome or "").lower()
+    for cat, palavras in CATEGORIA_REGRA:
+        for p in palavras:
+            if p in nome_l:
+                return cat
+    return "Outros"
+
+
+def normalizar_categoria(categoria, nome=None):
+    """Mapeia categorias livres/despadronizadas para as categorias canônicas."""
+    if categoria in CATEGORIAS:
+        return categoria
+    if nome and sugerir_categoria(nome) != "Outros":
+        return sugerir_categoria(nome)
+    if categoria and sugerir_categoria(categoria) != "Outros":
+        return sugerir_categoria(categoria)
+    return "Outros"
+
+
+# ── Múltiplos papéis por usuário ──────────────────────────────────────────────
+
+def serializar_roles(roles):
+    """Converte a lista de papéis em texto JSON para persistir na coluna 'roles'."""
+    if not roles:
+        return ""
+    if isinstance(roles, str):
+        return roles
+    return json.dumps([r for r in roles if r], ensure_ascii=False)
+
+
+def usuario_roles_lista(user):
+    """Retorna a lista de papéis do usuário (coluna 'roles' JSON; fallback para 'role')."""
+    if not user:
+        return []
+    roles = user.get("roles")
+    if isinstance(roles, list):
+        return [r for r in roles if r]
+    if isinstance(roles, str) and roles.strip():
+        try:
+            parsed = json.loads(roles)
+            if isinstance(parsed, list):
+                return [r for r in parsed if r]
+        except Exception:
+            pass
+        return [r.strip() for r in re.sub(r'[\["\]\s]', "", roles).split(",") if r.strip()]
+    single = user.get("role") or ""
+    return [single] if single else []
+
+
+@app.context_processor
+def injetar_helpers_templates():
+    """Disponibiliza funções utilitárias para uso direto nos templates."""
+    return dict(
+        usuario_roles_lista=usuario_roles_lista,
+        formatar_reais=formatar_reais,
+    )
 
 
 # ── Persistência genérica (usada pelos módulos novos) ────────────────────────
@@ -159,13 +264,15 @@ SYSTEM_TABS = [
 # ── Helpers de Verificação de Permissões e Decoradores ───────────────────────
 
 def user_has_permission(resource, action):
-    """Verifica se o usuário logado (g.user) tem a permissão para a ação no recurso/aba."""
+    """Verifica se o usuário logado (g.user) tem a permissão para a ação no recurso/aba.
+    Considera todos os papéis atribuídos ao usuário (múltiplos papéis são permitidos).
+    """
     if not g.get("user"):
         return False
-    role = g.user.get("role", "")
-    if role == "Admin":
+    roles = usuario_roles_lista(g.user)
+    if "Admin" in roles:
         return True
-    if not role:
+    if not roles:
         return False
 
     col_map = {"create": "can_create", "read": "can_read", "update": "can_update", "delete": "can_delete"}
@@ -176,18 +283,21 @@ def user_has_permission(resource, action):
             init_db()
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            cur.execute(f"SELECT {col} FROM role_permissions WHERE role=? AND resource=?", (role, resource))
-            row = cur.fetchone()
+            for role in roles:
+                cur.execute(f"SELECT {col} FROM role_permissions WHERE role=? AND resource=?", (role, resource))
+                row = cur.fetchone()
+                if row and row[0] == 1:
+                    conn.close()
+                    return True
             conn.close()
-            if row and row[0] == 1:
-                return True
         except Exception:
             return False
     else:
         perms_list = carregar_json("role_permissions.json", seed=[])
-        entry = next((p for p in perms_list if p.get("role") == role and p.get("resource") == resource), None)
-        if entry and entry.get(col) == 1:
-            return True
+        for role in roles:
+            entry = next((p for p in perms_list if p.get("role") == role and p.get("resource") == resource), None)
+            if entry and entry.get(col) == 1:
+                return True
     return False
 
 
@@ -195,10 +305,10 @@ def user_can_access_tab(tab_id):
     """Verifica se o usuário logado tem permissão para visualizar e acessar a aba no menu."""
     if not g.get("user"):
         return False
-    role = g.user.get("role", "")
-    if role == "Admin":
+    roles = usuario_roles_lista(g.user)
+    if "Admin" in roles:
         return True
-    if not role:
+    if not roles:
         return False
     if tab_id in ("adicionar", "baixa"):
         return user_has_permission(tab_id, "create") or user_has_permission(tab_id, "read")
@@ -212,8 +322,8 @@ def requires_roles(*allowed_roles):
         def wrapped(*args, **kwargs):
             if not g.get("user"):
                 return redirect(url_for("login", next=request.path))
-            role = (g.user.get("role") or "") if g.user else ""
-            if role == "Admin" or (role in allowed_roles):
+            roles = usuario_roles_lista(g.user)
+            if "Admin" in roles or any(r in allowed_roles for r in roles):
                 return f(*args, **kwargs)
             flash("Acesso negado: você não tem permissão para acessar esta área.")
             return redirect(url_for("home"))
@@ -228,7 +338,7 @@ def requires_permission(resource, action):
         def wrapped(*args, **kwargs):
             if not g.get("user"):
                 return redirect(url_for("login", next=request.path))
-            if g.user.get("role") == "Admin":
+            if "Admin" in usuario_roles_lista(g.user):
                 return f(*args, **kwargs)
             if user_has_permission(resource, action):
                 return f(*args, **kwargs)
@@ -394,7 +504,7 @@ def init_db():
         )
         """
     )
-    # For older DBs, ensure role, session_version, nome, and avatar columns exist
+    # For older DBs, ensure role, session_version, nome, avatar, and roles columns exist
     try:
         cur.execute("PRAGMA table_info(usuarios)")
         cols = [r[1] for r in cur.fetchall()]
@@ -406,6 +516,8 @@ def init_db():
             cur.execute("ALTER TABLE usuarios ADD COLUMN nome TEXT")
         if 'avatar' not in cols:
             cur.execute("ALTER TABLE usuarios ADD COLUMN avatar TEXT")
+        if 'roles' not in cols:
+            cur.execute("ALTER TABLE usuarios ADD COLUMN roles TEXT")
     except Exception:
         pass
 
@@ -475,6 +587,41 @@ def init_db():
 
     conn.commit()
     seed_roles_se_necessario(conn)
+
+    # Normaliza categorias dos materiais para o conjunto canônico, mantendo tudo
+    # sincronizado com as categorias existentes (ex.: "Couro" -> "Courino",
+    # "Metais" -> "Metal", "Polímero" -> "Outros").
+    try:
+        cur.execute("SELECT id, nome, categoria FROM materiais")
+        for row in cur.fetchall():
+            nova = normalizar_categoria(row[2], row[1])
+            if nova != row[2]:
+                cur.execute("UPDATE materiais SET categoria=?, emoji=? WHERE id=?", (nova, CATEGORIAS_EMOJI.get(nova, "🔹"), row[0]))
+        conn.commit()
+    except Exception:
+        pass
+
+    # Migração única: limpa resíduos de dados de teste e popula itens padrão do sistema
+    try:
+        cur.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)")
+        cur.execute("SELECT value FROM app_meta WHERE key='seed_padrao_aplicado'")
+        if not cur.fetchone():
+            cur.execute("DELETE FROM pedidos")
+            cur.execute("DELETE FROM sobras")
+            cur.execute("DELETE FROM despesas")
+            cur.execute("DELETE FROM movimentacoes")
+            cur.execute("DELETE FROM relatorios_customizados")
+            cur.execute("DELETE FROM produtos")
+            cur.execute("DELETE FROM materiais")
+            cur.execute("DELETE FROM usuarios WHERE username != 'admin'")
+            cur.execute("DELETE FROM roles WHERE is_system = 0")
+            cur.execute("DELETE FROM role_permissions WHERE role NOT IN (SELECT name FROM roles WHERE is_system = 1)")
+            cur.execute("UPDATE usuarios SET role='Admin', roles=? WHERE username='admin'", (serializar_roles(['Admin']),))
+            cur.execute("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('seed_padrao_aplicado', '1')")
+            conn.commit()
+    except Exception:
+        pass
+
     conn.close()
 
 
@@ -535,7 +682,7 @@ def registrar_movimentacao(tipo, quantidade, unidade, motivo, material_nome=""):
     para compatibilidade com código antigo.
     """
     usuario = session.get("user_id") if session else None
-    data_text = datetime.now().strftime("%d/%m/%Y %H:%M")
+    data_text = agora().strftime("%d/%m/%Y %H:%M")
 
     if USE_SQLITE:
         init_db()
@@ -544,7 +691,7 @@ def registrar_movimentacao(tipo, quantidade, unidade, motivo, material_nome=""):
         try:
             cur.execute(
                 "INSERT INTO movimentacoes (id,tipo,material_nome,quantidade,unidade,motivo,data,usuario,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (str(uuid.uuid4()), tipo, material_nome, float(quantidade or 0), unidade, motivo or "Não informado", data_text, usuario, datetime.now().isoformat()),
+                (str(uuid.uuid4()), tipo, material_nome, float(quantidade or 0), unidade, motivo or "Não informado", data_text, usuario, agora().isoformat()),
             )
             # Keep only 200 latest rows
             cur.execute("DELETE FROM movimentacoes WHERE id NOT IN (SELECT id FROM movimentacoes ORDER BY created_at DESC LIMIT 200)")
@@ -588,6 +735,7 @@ def carregar_usuarios():
             "avatar": r["avatar"] if ("avatar" in r.keys() and r["avatar"]) else "",
             "password_hash": r["password_hash"],
             "role": r["role"] if r["role"] is not None else "",
+            "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
             "created_at": r["created_at"],
             "session_version": r["session_version"] if ("session_version" in r.keys()) else 0,
         } for r in rows]
@@ -600,6 +748,8 @@ def carregar_usuarios():
             u["nome"] = ""
         if "avatar" not in u:
             u["avatar"] = ""
+        if "roles" not in u:
+            u["roles"] = ""
     return users
 
 
@@ -611,12 +761,12 @@ def salvar_usuarios(usuarios):
         try:
             cur.execute("BEGIN IMMEDIATE")
             cur.execute("DELETE FROM usuarios")
-            now = datetime.now().isoformat()
+            now = agora().isoformat()
             for u in usuarios:
                 _id = u.get("id") or str(uuid.uuid4())
                 cur.execute(
-                    "INSERT INTO usuarios (id, username, password_hash, role, nome, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (_id, u.get("username"), u.get("password_hash"), u.get("role") or "", u.get("nome") or "", u.get("avatar") or "", u.get("created_at") or now),
+                    "INSERT INTO usuarios (id, username, password_hash, role, nome, avatar, roles, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (_id, u.get("username"), u.get("password_hash"), u.get("role") or "", u.get("nome") or "", u.get("avatar") or "", serializar_roles(u.get("roles") or u.get("role") or ""), u.get("created_at") or now),
                 )
             conn.commit()
         except Exception:
@@ -637,22 +787,21 @@ def encontrar_usuario_por_username(username):
         cur.execute("SELECT * FROM usuarios WHERE username=?", (username,))
         r = cur.fetchone()
         conn.close()
+        if not r:
+            return None
         return {
             "id": r["id"],
             "username": r["username"],
-            "nome": r["nome"] if (r and "nome" in r.keys() and r["nome"]) else "",
-            "avatar": r["avatar"] if (r and "avatar" in r.keys() and r["avatar"]) else "",
+            "nome": r["nome"] if ("nome" in r.keys() and r["nome"]) else "",
+            "avatar": r["avatar"] if ("avatar" in r.keys() and r["avatar"]) else "",
             "password_hash": r["password_hash"],
-            "role": r["role"] if r and r["role"] is not None else "",
+            "role": r["role"] if r["role"] is not None else "",
+            "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
             "created_at": r["created_at"],
-            "session_version": r["session_version"] if r and ("session_version" in r.keys()) else 0,
-        } if r else None
+            "session_version": r["session_version"] if ("session_version" in r.keys()) else 0,
+        }
 
     usuarios = carregar_usuarios()
-    for u in usuarios:
-        if u.get("username") == username:
-            return u
-    return None
     for u in usuarios:
         if u.get("username") == username:
             return u
@@ -670,7 +819,7 @@ def seed_roles_se_necessario(conn=None):
     cur.execute("SELECT COUNT(1) FROM roles")
     count = cur.fetchone()[0]
 
-    now = datetime.now().isoformat()
+    now = agora().isoformat()
     default_roles_data = [
         ("Admin", "Acesso irrestrito a todas as áreas, abas e configurações do sistema", 1, {
             "estoque": (1, 1, 1, 1),
@@ -791,9 +940,9 @@ def carregar_papeis():
     roles = carregar_json("roles.json", seed=[])
     if not roles:
         roles = [
-            {"id": "admin-id", "name": "Admin", "description": "Acesso total", "is_system": True, "created_at": datetime.now().isoformat()},
-            {"id": "est-id", "name": "Estoque", "description": "Estoque e insumos", "is_system": True, "created_at": datetime.now().isoformat()},
-            {"id": "fin-id", "name": "Financeiro", "description": "Financeiro", "is_system": True, "created_at": datetime.now().isoformat()},
+            {"id": "admin-id", "name": "Admin", "description": "Acesso total", "is_system": True, "created_at": agora().isoformat()},
+            {"id": "est-id", "name": "Estoque", "description": "Estoque e insumos", "is_system": True, "created_at": agora().isoformat()},
+            {"id": "fin-id", "name": "Financeiro", "description": "Financeiro", "is_system": True, "created_at": agora().isoformat()},
         ]
         salvar_json("roles.json", roles)
     return roles
@@ -843,7 +992,8 @@ def criar_usuario_padrao_se_necessario():
         if cnt == 0:
             senha = os.environ.get("ADMIN_PASSWORD", "admin")
             uid = str(uuid.uuid4())
-            cur.execute("INSERT INTO usuarios (id,username,password_hash,role,created_at) VALUES (?,?,?,?,?)", (uid, 'admin', generate_password_hash(senha), 'Admin', datetime.now().isoformat()))
+            cur.execute("INSERT INTO usuarios (id,username,password_hash,role,roles,created_at) VALUES (?,?,?,?,?,?)",
+                        (uid, 'admin', generate_password_hash(senha), 'Admin', serializar_roles(['Admin']), agora().isoformat()))
             conn.commit()
         conn.close()
         return
@@ -856,7 +1006,8 @@ def criar_usuario_padrao_se_necessario():
             "username": "admin",
             "password_hash": generate_password_hash(senha),
             "role": 'Admin',
-            "created_at": datetime.now().isoformat(),
+            "roles": ['Admin'],
+            "created_at": agora().isoformat(),
         }
         usuarios.append(usuario)
         salvar_usuarios(usuarios)
@@ -883,11 +1034,11 @@ def recreate_db_with_admin_forced():
     init_db()
     pwd = secrets.token_urlsafe(10)
     uid = str(uuid.uuid4())
-    now = datetime.now().isoformat()
+    now = agora().isoformat()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     try:
-        cur.execute("INSERT OR REPLACE INTO usuarios (id,username,password_hash,created_at) VALUES (?,?,?,?)", (uid, 'admin', generate_password_hash(pwd), now))
+        cur.execute("INSERT OR REPLACE INTO usuarios (id,username,password_hash,role,roles,created_at) VALUES (?,?,?,?,?,?)", (uid, 'admin', generate_password_hash(pwd), 'Admin', serializar_roles(['Admin']), now))
         conn.commit()
     finally:
         conn.close()
@@ -934,6 +1085,7 @@ def require_login():
                     "nome": r["nome"] if ("nome" in r.keys() and r["nome"]) else "",
                     "avatar": r["avatar"] if ("avatar" in r.keys() and r["avatar"]) else "",
                     "role": r["role"] if r["role"] is not None else "",
+                    "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
                     "session_version": r["session_version"] if ("session_version" in r.keys()) else 0,
                 }
         else:
@@ -1064,7 +1216,7 @@ def minha_conta():
                     except Exception:
                         pass
                 ext = os.path.splitext(secure_filename(f.filename))[1].lower()
-                clean_name = f"avatar_{user_id}_{int(datetime.now().timestamp())}{ext}"
+                clean_name = f"avatar_{user_id}_{int(agora().timestamp())}{ext}"
                 target_path = os.path.join(DATA_DIR, 'uploads', clean_name)
                 f.save(target_path)
                 new_avatar = clean_name
@@ -1085,7 +1237,7 @@ def minha_conta():
                 try:
                     details = f"nome={nome};avatar={'yes' if new_avatar else 'no'};password_changed={'yes' if password_changed else 'no'}"
                     cur.execute("INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?,?,?,?,?,?,?)",
-                                (str(uuid.uuid4()), user_id, user.get('username'), user_id, 'update_profile', details, datetime.now().isoformat()))
+                                (str(uuid.uuid4()), user_id, user.get('username'), user_id, 'update_profile', details, agora().isoformat()))
                     conn.commit()
                 except Exception:
                     pass
@@ -1136,7 +1288,12 @@ def usuarios_novo():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         password2 = request.form.get("password2", "")
-        role = request.form.get("role", "")
+        roles = [r for r in request.form.getlist("roles") if r.strip()]
+        if not roles:
+            legado = request.form.get("role", "").strip()
+            if legado:
+                roles = [legado]
+        role = roles[0] if roles else ""
 
         if not username or not password:
             flash("Nome de usuário e senha são obrigatórios.")
@@ -1149,7 +1306,7 @@ def usuarios_novo():
             flash("Já existe um usuário com este nome.")
             return render_template("usuario_form.html", papeis=papeis)
 
-        now = datetime.now().isoformat()
+        now = agora().isoformat()
         uid = str(uuid.uuid4())
         password_hash = generate_password_hash(password)
 
@@ -1159,14 +1316,14 @@ def usuarios_novo():
             cur = conn.cursor()
             try:
                 cur.execute(
-                    "INSERT INTO usuarios (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (uid, username, password_hash, role, now),
+                    "INSERT INTO usuarios (id, username, password_hash, role, roles, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (uid, username, password_hash, role, serializar_roles(roles), now),
                 )
                 conn.commit()
                 try:
                     cur.execute(
                         "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, uid, "create_user", f"role={role}", datetime.now().isoformat()),
+                        (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, uid, "create_user", f"roles={roles}", agora().isoformat()),
                     )
                     conn.commit()
                 except Exception:
@@ -1184,6 +1341,7 @@ def usuarios_novo():
                 "username": username,
                 "password_hash": password_hash,
                 "role": role,
+                "roles": roles,
                 "created_at": now,
             })
             salvar_usuarios(usuarios_lista)
@@ -1209,7 +1367,7 @@ def usuarios_editar(user_id):
         if not r:
             flash("Usuário não encontrado.")
             return redirect(url_for("usuarios"))
-        usuario = {"id": r["id"], "username": r["username"], "role": r["role"] or ""}
+        usuario = {"id": r["id"], "username": r["username"], "role": r["role"] or "", "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else ""}
     else:
         usuarios_lista = carregar_usuarios()
         usuario = next((u for u in usuarios_lista if u.get("id") == user_id), None)
@@ -1218,40 +1376,45 @@ def usuarios_editar(user_id):
             return redirect(url_for("usuarios"))
 
     if request.method == "POST":
-        role = request.form.get("role", "")
+        roles = [x for x in request.form.getlist("roles") if x.strip()]
+        if not roles:
+            legado = request.form.get("role", "").strip()
+            if legado:
+                roles = [legado]
+        role = roles[0] if roles else ""
         new_pwd = request.form.get("password", "")
-        old_role = usuario.get("role") or ""
-        role_changed = (role != old_role)
+        old_roles = usuario_roles_lista(usuario)
+        roles_changed = (set(roles) != set(old_roles))
 
         if USE_SQLITE:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             try:
                 if new_pwd:
-                    if role_changed:
+                    if roles_changed:
                         cur.execute(
-                            "UPDATE usuarios SET role=?, password_hash=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
-                            (role, generate_password_hash(new_pwd), user_id),
+                            "UPDATE usuarios SET role=?, roles=?, password_hash=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
+                            (role, serializar_roles(roles), generate_password_hash(new_pwd), user_id),
                         )
                     else:
                         cur.execute(
-                            "UPDATE usuarios SET role=?, password_hash=? WHERE id=?",
-                            (role, generate_password_hash(new_pwd), user_id),
+                            "UPDATE usuarios SET role=?, roles=?, password_hash=? WHERE id=?",
+                            (role, serializar_roles(roles), generate_password_hash(new_pwd), user_id),
                         )
                 else:
-                    if role_changed:
+                    if roles_changed:
                         cur.execute(
-                            "UPDATE usuarios SET role=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
-                            (role, user_id),
+                            "UPDATE usuarios SET role=?, roles=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
+                            (role, serializar_roles(roles), user_id),
                         )
                     else:
-                        cur.execute("UPDATE usuarios SET role=? WHERE id=?", (role, user_id))
+                        cur.execute("UPDATE usuarios SET role=?, roles=? WHERE id=?", (role, serializar_roles(roles), user_id))
                 conn.commit()
                 try:
-                    details = f"role={role};password_changed={'yes' if new_pwd else 'no'}"
+                    details = f"roles={roles};password_changed={'yes' if new_pwd else 'no'}"
                     cur.execute(
                         "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, user_id, "update_user", details, datetime.now().isoformat()),
+                        (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, user_id, "update_user", details, agora().isoformat()),
                     )
                     conn.commit()
                 except Exception:
@@ -1259,7 +1422,7 @@ def usuarios_editar(user_id):
             except Exception as e:
                 conn.rollback()
                 flash("Erro ao atualizar usuário: " + str(e))
-                return render_template("usuario_edit.html", usuario=usuario, papeis=papeis)
+                return render_template("usuario_edit.html", usuario=usuario, papeis=papeis, usuario_roles=usuario_roles_lista(usuario))
             finally:
                 conn.close()
         else:
@@ -1267,6 +1430,7 @@ def usuarios_editar(user_id):
             for u in usuarios_lista:
                 if u.get("id") == user_id:
                     u["role"] = role
+                    u["roles"] = roles
                     if new_pwd:
                         u["password_hash"] = generate_password_hash(new_pwd)
             salvar_usuarios(usuarios_lista)
@@ -1274,7 +1438,7 @@ def usuarios_editar(user_id):
         flash("Usuário atualizado com sucesso.")
         return redirect(url_for("usuarios"))
 
-    return render_template("usuario_edit.html", usuario=usuario, papeis=papeis)
+    return render_template("usuario_edit.html", usuario=usuario, papeis=papeis, usuario_roles=usuario_roles_lista(usuario))
 
 
 @app.route("/usuarios/<user_id>/excluir", methods=["POST"])
@@ -1299,7 +1463,7 @@ def usuarios_excluir(user_id):
             try:
                 cur.execute(
                     "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, user_id, "delete_user", "", datetime.now().isoformat()),
+                    (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, user_id, "delete_user", "", agora().isoformat()),
                 )
                 conn.commit()
             except Exception:
@@ -1342,7 +1506,7 @@ def roles_novo():
             flash(f'Já existe um papel cadastrado com o nome "{name}".')
             return render_template("role_form.html", role=None, system_tabs=SYSTEM_TABS, is_novo=True)
 
-        now = datetime.now().isoformat()
+        now = agora().isoformat()
         role_id = str(uuid.uuid4())
 
         if USE_SQLITE:
@@ -1401,7 +1565,7 @@ def roles_editar(role):
         new_name = request.form.get("name", "").strip() or role
         description = request.form.get("description", "").strip()
 
-        now = datetime.now().isoformat()
+        now = agora().isoformat()
         if USE_SQLITE:
             init_db()
             conn = sqlite3.connect(DB_PATH)
@@ -1486,7 +1650,7 @@ def roles_excluir(role):
             try:
                 cur.execute(
                     "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, None, "delete_role", f"role={role}", datetime.now().isoformat()),
+                    (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, None, "delete_role", f"role={role}", agora().isoformat()),
                 )
                 conn.commit()
             except Exception:
@@ -1517,18 +1681,19 @@ def roles_assign():
             try:
                 changed = 0
                 for u in usuarios_lista:
-                    new_role = (request.form.get("role_" + u["id"], "") or "").strip()
-                    old_role = u.get("role") or ""
-                    if new_role != old_role:
+                    new_roles = [x for x in request.form.getlist("role_" + u["id"]) if x.strip()]
+                    old_roles = usuario_roles_lista(u)
+                    if set(new_roles) != set(old_roles):
+                        role_principal = new_roles[0] if new_roles else ""
                         cur.execute(
-                            "UPDATE usuarios SET role=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
-                            (new_role, u["id"]),
+                            "UPDATE usuarios SET role=?, roles=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
+                            (role_principal, serializar_roles(new_roles), u["id"]),
                         )
                         changed += 1
                         try:
                             cur.execute(
                                 "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, u["id"], "assign_role", f"role={new_role}", datetime.now().isoformat()),
+                                (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, u["id"], "assign_role", f"roles={new_roles}", agora().isoformat()),
                             )
                         except Exception:
                             pass
@@ -1566,7 +1731,7 @@ def carregar_materiais():
             except Exception:
                 seed = []
             if seed:
-                now = datetime.now().isoformat()
+                now = agora().isoformat()
                 to_insert = []
                 for m in seed:
                     _id = m.get("id") or str(uuid.uuid4())
@@ -1637,7 +1802,7 @@ def salvar_materiais(materiais):
             else:
                 cur.execute("DELETE FROM materiais")
 
-            now = datetime.now().isoformat()
+            now = agora().isoformat()
             for m in materiais:
                 _id = m.get("id") or str(uuid.uuid4())
                 cur.execute(
@@ -1791,6 +1956,12 @@ def adicionar():
             cat_custom = request.form.get("categoria_custom", "").strip()
             if cat_custom:
                 categoria = cat_custom
+            else:
+                # Sugere automaticamente a categoria a partir do nome do material,
+                # mantendo o estoque sempre consistente (courino -> Courino, etc.)
+                categoria = sugerir_categoria(nome)
+        # Normaliza a categoria escolhida para o conjunto canônico
+        categoria = normalizar_categoria(categoria, nome)
         gtin = request.form.get("gtin", "").strip()
 
         try:
@@ -1923,12 +2094,52 @@ def baixa():
 
 
 # ── Produtos & Receitas ───────────────────────────────────────────────────────
+DEFAULT_PRODUTOS = [
+    {"nome": "Bolsa Tote Clássica", "emoji": "👜", "preco_venda": 180.0, "receita": [
+        {"material_nome": "Courino Preto", "quantidade": 1.5},
+        {"material_nome": "Zíper 30cm Preto", "quantidade": 1.0},
+        {"material_nome": "Linha de Costura Preta", "quantidade": 0.05},
+    ]},
+    {"nome": "Necessaire Compacta", "emoji": "👝", "preco_venda": 60.0, "receita": [
+        {"material_nome": "Courino Preto", "quantidade": 0.4},
+        {"material_nome": "Zíper 30cm Preto", "quantidade": 1.0},
+    ]},
+    {"nome": "Bolsa Transversal Pequena", "emoji": "👛", "preco_venda": 120.0, "receita": [
+        {"material_nome": "Courino Caramelo", "quantidade": 0.8},
+        {"material_nome": "Mosquetão Dourado", "quantidade": 2.0},
+        {"material_nome": "Fivela Quadrada Dourada", "quantidade": 1.0},
+    ]},
+]
+
+
 def carregar_produtos():
     if USE_SQLITE:
         init_db()
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        cur.execute("SELECT COUNT(1) as cnt FROM produtos")
+        cnt = cur.fetchone()[0]
+        if cnt == 0:
+            # Seed produtos padrão do sistema, resolvendo os materiais da receita por nome
+            try:
+                mat_map = {m["nome"].lower(): m for m in carregar_materiais()}
+            except Exception:
+                mat_map = {}
+            now = agora().isoformat()
+            for p in DEFAULT_PRODUTOS:
+                receita = []
+                for item in p.get("receita", []):
+                    m = mat_map.get((item.get("material_nome") or "").lower())
+                    if m:
+                        receita.append({"material_id": m["id"], "quantidade": float(item.get("quantidade") or 0)})
+                if not receita:
+                    continue
+                cur.execute(
+                    "INSERT OR IGNORE INTO produtos (id, nome, emoji, preco_venda, receita, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), p["nome"], p["emoji"], float(p["preco_venda"] or 0), json.dumps(receita, ensure_ascii=False), now, now),
+                )
+            conn.commit()
         cur.execute("SELECT * FROM produtos ORDER BY nome COLLATE NOCASE")
         rows = cur.fetchall()
         conn.close()
@@ -1958,7 +2169,7 @@ def salvar_produtos(produtos):
         try:
             cur.execute("BEGIN IMMEDIATE")
             cur.execute("DELETE FROM produtos")
-            now = datetime.now().isoformat()
+            now = agora().isoformat()
             for p in produtos:
                 _id = p.get("id") or str(uuid.uuid4())
                 cur.execute(
@@ -2115,7 +2326,7 @@ def encontrar_relatorio_por_id(relatorio_id):
 
 def salvar_relatorio_customizado(rel):
     _id = rel.get("id") or str(uuid.uuid4())
-    now = datetime.now().isoformat()
+    now = agora().isoformat()
     if USE_SQLITE:
         init_db()
         conn = sqlite3.connect(DB_PATH)
@@ -2200,7 +2411,7 @@ def gerar_dados_relatorio(relatorio):
 
         kpis = [
             {"titulo": "Itens Filtrados", "valor": f"{total_itens}", "sub": "Materiais selecionados", "cor": "var(--primary)"},
-            {"titulo": "Valor em Estoque", "valor": f"R$ {valor_total:,.2f}", "sub": "Total imobilizado", "cor": "var(--accent)"},
+            {"titulo": "Valor em Estoque", "valor": f"R\$ {formatar_reais(valor_total)}", "sub": "Total imobilizado", "cor": "var(--accent)"},
             {"titulo": "Nível Crítico", "valor": f"{criticos_count}", "sub": "Itens abaixo do mínimo", "cor": "var(--danger)" if criticos_count > 0 else "var(--success)"},
         ]
 
@@ -2218,8 +2429,8 @@ def gerar_dados_relatorio(relatorio):
                 m.get("categoria", ""),
                 f"{m.get('quantidade',0)} {m.get('unidade','')}",
                 f"{m.get('quantidade_minima',0)} {m.get('unidade','')}",
-                f"R$ {float(m.get('custo',0)):,.2f}",
-                f"R$ {val_t:,.2f}",
+                f"R\$ {formatar_reais(float(m.get('custo',0)))}",
+                f"R\$ {formatar_reais(val_t)}",
                 "⚠️ Crítico" if is_crit else "✅ Normal"
             ])
             labels.append(m.get("nome", "")[:18])
@@ -2266,13 +2477,13 @@ def gerar_dados_relatorio(relatorio):
         lucro = round(rec_entregue - total_desp, 2)
 
         kpis = [
-            {"titulo": "Receita Recebida", "valor": f"R$ {rec_entregue:,.2f}", "sub": "Pedidos entregues", "cor": "var(--success)"},
-            {"titulo": "Despesas Filtradas", "valor": f"R$ {total_desp:,.2f}", "sub": f"{len(despesas)} lançamentos", "cor": "var(--danger)"},
-            {"titulo": "Lucro Realizado", "valor": f"R$ {lucro:,.2f}", "sub": "Receita − Despesas", "cor": "var(--success)" if lucro >= 0 else "var(--danger)"},
+            {"titulo": "Receita Recebida", "valor": f"R\$ {formatar_reais(rec_entregue)}", "sub": "Pedidos entregues", "cor": "var(--success)"},
+            {"titulo": "Despesas Filtradas", "valor": f"R\$ {formatar_reais(total_desp)}", "sub": f"{len(despesas)} lançamentos", "cor": "var(--danger)"},
+            {"titulo": "Lucro Realizado", "valor": f"R\$ {formatar_reais(lucro)}", "sub": "Receita − Despesas", "cor": "var(--success)" if lucro >= 0 else "var(--danger)"},
         ]
 
         tabela["colunas"] = ["Data", "Descrição", "Categoria", "Valor (R$)"]
-        tabela["linhas"] = [[d.get("data",""), d.get("descricao",""), d.get("categoria","Outros"), f"R$ {float(d.get('valor',0)):,.2f}"] for d in despesas]
+        tabela["linhas"] = [[d.get("data",""), d.get("descricao",""), d.get("categoria","Outros"), f"R\$ {formatar_reais(float(d.get('valor',0)))}"] for d in despesas]
 
         # Agrupamento de despesas por categoria
         desp_por_cat = {}
@@ -2310,13 +2521,13 @@ def gerar_dados_relatorio(relatorio):
 
         kpis = [
             {"titulo": "Total de Pedidos", "valor": f"{total_peds}", "sub": "Registros filtrados", "cor": "var(--primary)"},
-            {"titulo": "Faturamento", "valor": f"R$ {faturamento_tot:,.2f}", "sub": "Volume total", "cor": "var(--accent)"},
+            {"titulo": "Faturamento", "valor": f"R\$ {formatar_reais(faturamento_tot)}", "sub": "Volume total", "cor": "var(--accent)"},
             {"titulo": "Entregues", "valor": f"{entregues}", "sub": f"{round((entregues/total_peds*100) if total_peds>0 else 0)}% do total", "cor": "var(--success)"},
         ]
 
         tabela["colunas"] = ["Cliente", "Produto", "Qtd", "Valor Total", "Status", "Data Pedido"]
         tabela["linhas"] = [
-            [p.get("cliente",""), p.get("produto_nome",""), p.get("quantidade",1), f"R$ {float(p.get('valor_total',0)):,.2f}", p.get("status","Pendente"), p.get("data_pedido","")]
+            [p.get("cliente",""), p.get("produto_nome",""), p.get("quantidade",1), f"R\$ {formatar_reais(float(p.get('valor_total',0)))}", p.get("status","Pendente"), p.get("data_pedido","")]
             for p in pedidos
         ]
 
@@ -2406,18 +2617,18 @@ def gerar_dados_relatorio(relatorio):
         lucro = round(rec_ent - tot_desp, 2)
 
         kpis = [
-            {"titulo": "Valor em Estoque", "valor": f"R$ {val_est:,.2f}", "sub": f"{len(materiais)} insumos", "cor": "var(--primary)"},
-            {"titulo": "Receita Recebida", "valor": f"R$ {rec_ent:,.2f}", "sub": "Pedidos entregues", "cor": "var(--success)"},
-            {"titulo": "Lucro Operacional", "valor": f"R$ {lucro:,.2f}", "sub": "Receita − Despesas", "cor": "var(--success)" if lucro >= 0 else "var(--danger)"},
+            {"titulo": "Valor em Estoque", "valor": f"R\$ {formatar_reais(val_est)}", "sub": f"{len(materiais)} insumos", "cor": "var(--primary)"},
+            {"titulo": "Receita Recebida", "valor": f"R\$ {formatar_reais(rec_ent)}", "sub": "Pedidos entregues", "cor": "var(--success)"},
+            {"titulo": "Lucro Operacional", "valor": f"R\$ {formatar_reais(lucro)}", "sub": "Receita − Despesas", "cor": "var(--success)" if lucro >= 0 else "var(--danger)"},
         ]
 
         tabela["colunas"] = ["Métrica Consolidada", "Valor"]
         tabela["linhas"] = [
-            ["Valor Total em Estoque", f"R$ {val_est:,.2f}"],
-            ["Receita Recebida", f"R$ {rec_ent:,.2f}"],
-            ["Receita Prevista (Em andamento)", f"R$ {rec_prev:,.2f}"],
-            ["Despesas Operacionais", f"R$ {tot_desp:,.2f}"],
-            ["Lucro Líquido", f"R$ {lucro:,.2f}"],
+            ["Valor Total em Estoque", f"R\$ {formatar_reais(val_est)}"],
+            ["Receita Recebida", f"R\$ {formatar_reais(rec_ent)}"],
+            ["Receita Prevista (Em andamento)", f"R\$ {formatar_reais(rec_prev)}"],
+            ["Despesas Operacionais", f"R\$ {formatar_reais(tot_desp)}"],
+            ["Lucro Líquido", f"R\$ {formatar_reais(lucro)}"],
         ]
 
         chart_data["labels"] = ["Estoque", "Receita Entregue", "Receita Prevista", "Despesas", "Lucro"]
@@ -2594,7 +2805,7 @@ def pedido_novo():
             return redirect(url_for("pedido_novo"))
 
         preco_unit = produto.get("preco_venda", 0)
-        agora = datetime.now()
+        dt_pedido = agora()
         novo = {
             "id": str(uuid.uuid4()),
             "cliente": cliente,
@@ -2606,8 +2817,8 @@ def pedido_novo():
             "valor_total": round(preco_unit * quantidade, 2),
             "status": "Pendente",
             "materiais_baixados": False,
-            "data_pedido": agora.strftime("%d/%m/%Y"),
-            "data_pedido_iso": agora.strftime("%Y-%m-%d %H:%M:%S"),
+            "data_pedido": dt_pedido.strftime("%d/%m/%Y"),
+            "data_pedido_iso": dt_pedido.strftime("%Y-%m-%d %H:%M:%S"),
             "observacoes": observacoes,
         }
         if USE_SQLITE:
@@ -2617,7 +2828,7 @@ def pedido_novo():
             cur.execute(
                 "INSERT INTO pedidos (id,cliente,produto_id,produto_nome,produto_emoji,quantidade,preco_unitario,valor_total,status,materiais_baixados,data_pedido,data_pedido_iso,observacoes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    novo["id"], novo["cliente"], novo["produto_id"], novo["produto_nome"], novo["produto_emoji"], novo["quantidade"], novo["preco_unitario"], novo["valor_total"], novo["status"], 0, novo["data_pedido"], novo["data_pedido_iso"], novo["observacoes"], agora.isoformat(), agora.isoformat()
+                    novo["id"], novo["cliente"], novo["produto_id"], novo["produto_nome"], novo["produto_emoji"], novo["quantidade"], novo["preco_unitario"], novo["valor_total"], novo["status"], 0, novo["data_pedido"], novo["data_pedido_iso"], novo["observacoes"], dt_pedido.isoformat(), dt_pedido.isoformat()
                 )
             )
             conn.commit()
@@ -2640,7 +2851,7 @@ def pedido_status(pedido_id):
         flash("Status inválido.")
         return redirect(url_for("pedidos"))
 
-    now = datetime.now()
+    now = agora()
     now_iso = now.isoformat()
     now_str = now.strftime("%d/%m/%Y %H:%M")
     usuario_id = session.get("user_id") if session else None
@@ -2842,17 +3053,58 @@ def sobra_novo():
             flash("Informe descrição e quantidade válida para a sobra.")
             return redirect(url_for("sobra_novo"))
 
+        # Regra: se informou um material, ele precisa existir no estoque e ter
+        # saldo suficiente. Caso contrário a ação NÃO é executada.
+        if material_id:
+            m = encontrar(materiais, material_id)
+            if not m:
+                flash("Não foi possível registrar a sobra: o material selecionado não existe no estoque.")
+                return redirect(url_for("sobra_novo"))
+            saldo = float(m.get("quantidade") or 0)
+            if quantidade > saldo:
+                flash(f"Não foi possível registrar a sobra: estoque insuficiente para {m.get('nome')}. Saldo atual: {saldo} {m.get('unidade')}.")
+                return redirect(url_for("sobra_novo"))
+            if unidade != (m.get("unidade") or "unidades"):
+                flash("A unidade da sobra deve ser igual à unidade do material no estoque.")
+                return redirect(url_for("sobra_novo"))
+
+        now = agora()
+        now_iso = now.isoformat()
+        now_str = now.strftime("%d/%m/%Y %H:%M")
+
         if USE_SQLITE:
             init_db()
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            now = datetime.now().isoformat()
-            cur.execute(
-                "INSERT INTO sobras (id,material_id,descricao,quantidade,unidade,data,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (str(uuid.uuid4()), material_id or None, descricao, quantidade, unidade, datetime.now().strftime("%d/%m/%Y"), "Disponível", now, now)
-            )
-            conn.commit()
-            conn.close()
+            try:
+                cur.execute("BEGIN IMMEDIATE")
+                sobra_id = str(uuid.uuid4())
+                cur.execute(
+                    "INSERT INTO sobras (id,material_id,descricao,quantidade,unidade,data,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (sobra_id, material_id or None, descricao, quantidade, unidade, now.strftime("%d/%m/%Y"), "Disponível", now_iso, now_iso)
+                )
+                if material_id:
+                    cur.execute(
+                        "UPDATE materiais SET quantidade=?, updated_at=? WHERE id=?",
+                        (round(float(m["quantidade"]) - quantidade, 3), now_iso, material_id)
+                    )
+                    cur.execute(
+                        "INSERT INTO movimentacoes (id, tipo, material_nome, quantidade, unidade, motivo, data, usuario, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (str(uuid.uuid4()), "sobra", m["nome"], quantidade, unidade, "Sobra registrada (retirada do estoque)", now_str, session.get("user_id"), now_iso)
+                    )
+                conn.commit()
+            except Exception as e:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                flash('Erro ao registrar sobra: ' + str(e))
+                return redirect(url_for("sobra_novo"))
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
             flash(f'Sobra "{descricao}" registrada.')
             return redirect(url_for("sobras"))
 
@@ -2863,9 +3115,12 @@ def sobra_novo():
             "descricao": descricao,
             "quantidade": quantidade,
             "unidade": unidade,
-            "data": datetime.now().strftime("%d/%m/%Y"),
+            "data": now.strftime("%d/%m/%Y"),
             "status": "Disponível",
         })
+        if material_id:
+            m["quantidade"] = round(float(m.get("quantidade") or 0) - quantidade, 3)
+            salvar_materiais(materiais)
         salvar_json("sobras.json", sobras_lista)
         flash(f'Sobra "{descricao}" registrada.')
         return redirect(url_for("sobras"))
@@ -2876,7 +3131,7 @@ def sobra_novo():
 @app.route("/sobras/<sobra_id>/reaproveitar", methods=["POST"])
 @requires_permission('sobras', 'update')
 def sobra_reaproveitar(sobra_id):
-    now = datetime.now()
+    now = agora()
     now_iso = now.isoformat()
     now_str = now.strftime("%d/%m/%Y %H:%M")
     usuario_id = session.get("user_id") if session else None
@@ -2973,7 +3228,7 @@ def sobra_descartar(sobra_id):
         cur.execute("SELECT status FROM sobras WHERE id=?", (sobra_id,))
         r = cur.fetchone()
         if r and r[0] == "Disponível":
-            cur.execute("UPDATE sobras SET status=?, updated_at=? WHERE id=?", ("Descartado", datetime.now().isoformat(), sobra_id))
+            cur.execute("UPDATE sobras SET status=?, updated_at=? WHERE id=?", ("Descartado", agora().isoformat(), sobra_id))
             conn.commit()
         conn.close()
         flash("Sobra marcada como descartada.")
@@ -3089,9 +3344,9 @@ def financeiro_despesa():
         init_db()
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        now = datetime.now().isoformat()
+        now = agora().isoformat()
         cur.execute("INSERT INTO despesas (id,descricao,valor,categoria,data,created_at) VALUES (?,?,?,?,?,?)",
-                    (str(uuid.uuid4()), descricao, float(valor), categoria, datetime.now().strftime("%d/%m/%Y"), now))
+                    (str(uuid.uuid4()), descricao, float(valor), categoria, agora().strftime("%d/%m/%Y"), now))
         conn.commit()
         conn.close()
         flash(f'Despesa "{descricao}" registrada.')
@@ -3103,7 +3358,7 @@ def financeiro_despesa():
         "descricao": descricao,
         "valor": valor,
         "categoria": categoria,
-        "data": datetime.now().strftime("%d/%m/%Y"),
+        "data": agora().strftime("%d/%m/%Y"),
     })
     salvar_json("despesas.json", despesas)
     flash(f'Despesa "{descricao}" registrada.')
@@ -3412,7 +3667,7 @@ def exportar_financeiro_pdf():
 
             self.setFont("Helvetica", 8.5)
             self.setFillColor(colors.white)
-            self.drawRightString(width - 15 * mm, height - 10.5 * mm, f"Emissao: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+            self.drawRightString(width - 15 * mm, height - 10.5 * mm, f"Emissao: {agora().strftime('%d/%m/%Y %H:%M')}")
 
             # Footer line
             self.setStrokeColor(colors.HexColor("#E2D2BC"))
@@ -3507,13 +3762,13 @@ def exportar_financeiro_pdf():
     lucro_color = '#2E7D32' if lucro >= 0 else '#C62828'
     kpi_data = [
         [
-            Paragraph(f"<b>Valor em Estoque</b><br/><font size=12 color='#7C3D12'><b>R$ {valor_estoque:,.2f}</b></font><br/><font size=7 color='#7A6B63'>Total em insumos</font>", cell_style),
-            Paragraph(f"<b>Receita Recebida</b><br/><font size=12 color='#2E7D32'><b>R$ {receita_entregue:,.2f}</b></font><br/><font size=7 color='#7A6B63'>Pedidos entregues</font>", cell_style),
-            Paragraph(f"<b>Receita Prevista</b><br/><font size=12 color='#C88242'><b>R$ {receita_prevista:,.2f}</b></font><br/><font size=7 color='#7A6B63'>Pedidos em andamento</font>", cell_style),
+            Paragraph(f"<b>Valor em Estoque</b><br/><font size=12 color='#7C3D12'><b>R\$ {formatar_reais(valor_estoque)}</b></font><br/><font size=7 color='#7A6B63'>Total em insumos</font>", cell_style),
+            Paragraph(f"<b>Receita Recebida</b><br/><font size=12 color='#2E7D32'><b>R\$ {formatar_reais(receita_entregue)}</b></font><br/><font size=7 color='#7A6B63'>Pedidos entregues</font>", cell_style),
+            Paragraph(f"<b>Receita Prevista</b><br/><font size=12 color='#C88242'><b>R\$ {formatar_reais(receita_prevista)}</b></font><br/><font size=7 color='#7A6B63'>Pedidos em andamento</font>", cell_style),
         ],
         [
-            Paragraph(f"<b>Despesas Totais</b><br/><font size=12 color='#C62828'><b>R$ {total_despesas:,.2f}</b></font><br/><font size=7 color='#7A6B63'>Custos operacionais</font>", cell_style),
-            Paragraph(f"<b>Lucro Realizado</b><br/><font size=12 color='{lucro_color}'><b>R$ {lucro:,.2f}</b></font><br/><font size=7 color='#7A6B63'>Receita − Despesas</font>", cell_style),
+            Paragraph(f"<b>Despesas Totais</b><br/><font size=12 color='#C62828'><b>R\$ {formatar_reais(total_despesas)}</b></font><br/><font size=7 color='#7A6B63'>Custos operacionais</font>", cell_style),
+            Paragraph(f"<b>Lucro Realizado</b><br/><font size=12 color='{lucro_color}'><b>R\$ {formatar_reais(lucro)}</b></font><br/><font size=7 color='#7A6B63'>Receita − Despesas</font>", cell_style),
             Paragraph(f"<b>Total de Materiais</b><br/><font size=12 color='#5C2D0E'><b>{len(materiais)} itens</b></font><br/><font size=7 color='#7A6B63'>Cadastrados no estoque</font>", cell_style),
         ]
     ]
@@ -3545,7 +3800,7 @@ def exportar_financeiro_pdf():
                 Paragraph(str(d.get("data", "")), cell_style),
                 Paragraph(str(d.get("descricao", "")), cell_style),
                 Paragraph(str(d.get("categoria", "Outros")), cell_style),
-                Paragraph(f"R$ {float(d.get('valor', 0)):,.2f}", cell_right),
+                Paragraph(f"R\$ {formatar_reais(float(d.get('valor', 0)))}", cell_right),
             ])
     else:
         desp_table_data.append([Paragraph("Nenhuma despesa registrada.", cell_style), "", "", ""])
@@ -3579,7 +3834,7 @@ def exportar_financeiro_pdf():
                 Paragraph(str(p.get("produto_nome", "")), cell_style),
                 Paragraph(str(p.get("quantidade", 1)), cell_style),
                 Paragraph(st, cell_style),
-                Paragraph(f"R$ {float(p.get('valor_total', 0)):,.2f}", cell_right),
+                Paragraph(f"R\$ {formatar_reais(float(p.get('valor_total', 0)))}", cell_right),
             ])
     else:
         ped_table_data.append([Paragraph("Nenhum pedido registrado.", cell_style), "", "", "", ""])
@@ -3616,7 +3871,7 @@ def exportar_financeiro_pdf():
                 Paragraph(str(m.get('categoria','')), cell_style),
                 Paragraph(f"<font color='#C62828'><b>{m.get('quantidade',0)} {m.get('unidade','')}</b></font>", cell_style),
                 Paragraph(f"{m.get('quantidade_minima',0)} {m.get('unidade','')}", cell_style),
-                Paragraph(f"R$ {custo_rep:,.2f}", cell_right),
+                Paragraph(f"R\$ {formatar_reais(custo_rep)}", cell_right),
             ])
         t_crit = RLTable(crit_table_data, colWidths=[55 * mm, 35 * mm, 30 * mm, 25 * mm, 35 * mm])
         t_crit.setStyle(TableStyle([
@@ -3675,7 +3930,7 @@ def exportar_tudo_xlsx():
     ws_resumo["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws_resumo.row_dimensions[1].height = 34
 
-    ws_resumo["A2"] = f"Relatório gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+    ws_resumo["A2"] = f"Relatório gerado em: {agora().strftime('%d/%m/%Y %H:%M:%S')}"
     ws_resumo["A2"].font = Font(name="Segoe UI", size=9.5, italic=True, color="7A6B63")
     ws_resumo.row_dimensions[2].height = 18
 

@@ -6,23 +6,23 @@
 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:18px;">
   <div>
     <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">🔒 Papéis de Usuários</h3>
-    <p class="font-crimson" style="font-size:13px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+    <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
       Configure os níveis de acesso e as abas liberadas para cada função
     </p>
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap;">
     {% if has_permission('roles', 'create') %}
-    <a href="{{ url_for('roles_novo') }}" class="btn-primary" style="padding:8px 14px; font-size:14px !important; min-height:38px; width:auto; display:inline-flex; align-items:center; gap:6px;">
+    <a href="{{ url_for('roles_novo') }}" class="btn-primary" style="padding:8px 14px; font-size:15px !important; min-height:38px; width:auto; display:inline-flex; align-items:center; gap:6px;">
       ➕ Novo Papel
     </a>
     {% endif %}
     {% if has_permission('roles', 'update') %}
-    <a href="{{ url_for('roles_assign') }}" class="btn-secondary" style="padding:8px 12px; font-size:14px; min-height:38px;">
+    <a href="{{ url_for('roles_assign') }}" class="btn-secondary" style="padding:8px 12px; font-size:15px; min-height:38px;">
       👥 Atribuir em Massa
     </a>
     {% endif %}
     {% if has_permission('usuarios', 'read') %}
-    <a href="{{ url_for('usuarios') }}" class="btn-ghost" style="padding:8px 12px; font-size:14px; min-height:38px;">
+    <a href="{{ url_for('usuarios') }}" class="btn-ghost" style="padding:8px 12px; font-size:15px; min-height:38px;">
       👥 Usuários
     </a>
     {% endif %}
@@ -40,18 +40,18 @@
             {{ p.name }}
           </h4>
           {% if p.name == 'Admin' %}
-            <span class="badge" style="background:#5c2d0e; color:#fde9c2; font-size:11px; font-weight:700; padding:2px 8px; border-radius:12px;">👑 Acesso Total</span>
+            <span class="badge" style="background:#5c2d0e; color:#fde9c2; font-size:13px; font-weight:700; padding:2px 8px; border-radius:12px;">👑 Acesso Total</span>
           {% elif p.is_system %}
-            <span class="badge" style="background:var(--accent-lt); color:var(--primary); font-size:11px; font-weight:600; padding:2px 8px; border-radius:12px;">Padrão do Sistema</span>
+            <span class="badge" style="background:var(--accent-lt); color:var(--primary); font-size:13px; font-weight:600; padding:2px 8px; border-radius:12px;">Padrão do Sistema</span>
           {% else %}
-            <span class="badge" style="background:#e8f4ec; color:var(--success); font-size:11px; font-weight:600; padding:2px 8px; border-radius:12px;">Personalizado</span>
+            <span class="badge" style="background:#e8f4ec; color:var(--success); font-size:13px; font-weight:600; padding:2px 8px; border-radius:12px;">Personalizado</span>
           {% endif %}
-          <span style="font-size:12px; color:var(--muted); background:rgba(0,0,0,0.04); padding:2px 8px; border-radius:10px;">
+          <span style="font-size:14px; color:var(--muted); background:rgba(0,0,0,0.04); padding:2px 8px; border-radius:10px;">
             👤 {{ p.user_count }} {{ 'usuário' if p.user_count == 1 else 'usuários' }}
           </span>
         </div>
         {% if p.description %}
-        <p class="font-crimson" style="font-size:13px; color:var(--muted); margin:4px 0 0 0; font-style:italic;">
+        <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:4px 0 0 0; font-style:italic;">
           {{ p.description }}
         </p>
         {% endif %}
@@ -59,13 +59,13 @@
 
       <div style="display:flex; gap:6px; align-items:center;">
         {% if has_permission('roles', 'update') %}
-        <a href="{{ url_for('roles_editar', role=p.name) }}" class="btn-ghost" style="padding:6px 10px; font-size:13px; min-height:34px;">
+        <a href="{{ url_for('roles_editar', role=p.name) }}" class="btn-ghost" style="padding:6px 10px; font-size:15px; min-height:34px;">
           ✏️ Configurar Permissões
         </a>
         {% endif %}
         {% if not p.is_system and p.name != 'Admin' and has_permission('roles', 'delete') %}
         <form method="post" action="{{ url_for('roles_excluir', role=p.name) }}" onsubmit="return confirm('Tem certeza que deseja excluir o papel {{ p.name }}? Usuários com este papel ficarão sem permissões até nova atribuição.');" style="margin:0;">
-          <button type="submit" class="btn-ghost" style="padding:6px 10px; font-size:13px; min-height:34px; color:var(--danger); border-color:var(--danger-lt);">
+          <button type="submit" class="btn-ghost" style="padding:6px 10px; font-size:15px; min-height:34px; color:var(--danger); border-color:var(--danger-lt);">
             🗑️ Excluir
           </button>
         </form>
@@ -75,7 +75,7 @@
 
     <!-- Resumo de Abas Liberadas -->
     <div style="margin-top:12px; padding-top:12px; border-top:1px dashed var(--border);">
-      <div style="font-size:12px; font-weight:700; color:var(--primary); margin-bottom:8px; display:flex; justify-content:space-between;">
+      <div style="font-size:14px; font-weight:700; color:var(--primary); margin-bottom:8px; display:flex; justify-content:space-between;">
         <span>Abas Liberadas ({{ p.allowed_tabs|length }}/{{ p.total_tabs }}):</span>
         {% if p.name == 'Admin' %}
         <span style="color:var(--success); font-weight:600;">Acesso Irrestrito (CRUD Completo)</span>
@@ -85,7 +85,7 @@
       <div style="display:flex; flex-wrap:wrap; gap:6px;">
         {% if p.name == 'Admin' %}
           {% for tab in system_tabs %}
-          <span style="background:var(--card); border:1px solid var(--border); padding:3px 8px; border-radius:8px; font-size:12px; display:inline-flex; align-items:center; gap:4px;">
+          <span style="background:var(--card); border:1px solid var(--border); padding:3px 8px; border-radius:8px; font-size:14px; display:inline-flex; align-items:center; gap:4px;">
             <span>{{ tab.emoji }}</span> <strong>{{ tab.name }}</strong> <span style="font-size:10px; color:var(--success); font-weight:700;">[CRUD]</span>
           </span>
           {% endfor %}
@@ -93,7 +93,7 @@
           {% if p.allowed_tabs %}
             {% for tab in p.allowed_tabs %}
             {% set perm = p.permissions.get(tab.id, {}) %}
-            <span style="background:var(--card); border:1px solid var(--border); padding:3px 8px; border-radius:8px; font-size:12px; display:inline-flex; align-items:center; gap:4px;">
+            <span style="background:var(--card); border:1px solid var(--border); padding:3px 8px; border-radius:8px; font-size:14px; display:inline-flex; align-items:center; gap:4px;">
               <span>{{ tab.emoji }}</span>
               <span>{{ tab.name }}</span>
               <span style="font-size:10px; color:var(--primary); font-weight:700; opacity:0.8;">
@@ -102,7 +102,7 @@
             </span>
             {% endfor %}
           {% else %}
-            <span class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">Nenhuma aba liberada para este papel.</span>
+            <span class="font-crimson" style="font-size:15px; color:var(--muted); font-style:italic;">Nenhuma aba liberada para este papel.</span>
           {% endif %}
         {% endif %}
       </div>
@@ -112,7 +112,7 @@
 </div>
 {% else %}
 <div class="card" style="padding:24px; text-align:center;">
-  <p class="font-crimson" style="color:var(--muted); font-size:15px;">Nenhum papel encontrado.</p>
+  <p class="font-crimson" style="color:var(--muted); font-size:16px;">Nenhum papel encontrado.</p>
 </div>
 {% endif %}
 

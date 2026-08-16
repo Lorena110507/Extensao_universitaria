@@ -13,7 +13,7 @@
 <div class="card" style="padding:16px; margin-bottom:16px; border:1.5px solid var(--danger);">
   <p style="color:var(--danger); font-weight:700; margin-bottom:8px;">⚠️ Estoque baixo</p>
   {% for m in baixo_estoque %}
-  <p class="font-crimson" style="font-size:14px; margin-bottom:4px;">{{ m.emoji }} {{ m.nome }} — {{ m.quantidade }} {{ m.unidade }}</p>
+  <p class="font-crimson" style="font-size:15px; margin-bottom:4px;">{{ m.emoji }} {{ m.nome }} — {{ m.quantidade }} {{ m.unidade }}</p>
   {% endfor %}
 </div>
 {% endif %}
@@ -35,7 +35,7 @@
 {% endif %}
 
 <div class="ornament" style="margin-top:28px;">✦ ✦ ✦</div>
-<p class="font-crimson" style="text-align:center; color:var(--muted); font-style:italic; font-size:13px; margin-top:6px;">
+<p class="font-crimson" style="text-align:center; color:var(--muted); font-style:italic; font-size:15px; margin-top:6px;">
   Conectados pela Comunidade · Favela do Haiti, SP
 </p>
 {% endblock %}
