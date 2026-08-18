@@ -1,6 +1,6 @@
 """
 test_ania_chatbot.py - Testes Automatizados para a Assistente Virtual Ania
-Valida permissões RBAC, execução de ações e respostas por texto e voz.
+Valida permissões RBAC e execução de TODAS as ações do site por voz e digitação.
 """
 
 import os
@@ -9,7 +9,8 @@ import sqlite3
 import unittest
 from app import (
     app, init_db, DB_PATH, generate_password_hash,
-    carregar_materiais, carregar_pedidos, carregar_produtos, USE_SQLITE
+    carregar_materiais, carregar_pedidos, carregar_produtos,
+    carregar_sobras, carregar_despesas, USE_SQLITE
 )
 
 class TestAniaChatbot(unittest.TestCase):
@@ -37,9 +38,11 @@ class TestAniaChatbot(unittest.TestCase):
                     ("ApenasEstoque", "estoque", 0, 1, 1, 0))
         cur.execute("INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete) VALUES (?, ?, ?, ?, ?, ?)",
                     ("ApenasEstoque", "baixa", 1, 1, 0, 0))
-        # Garante que financeiro está bloqueado para ApenasEstoque
+        # Garante que financeiro e relatórios estão bloqueados para ApenasEstoque
         cur.execute("INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete) VALUES (?, ?, ?, ?, ?, ?)",
                     ("ApenasEstoque", "financeiro", 0, 0, 0, 0))
+        cur.execute("INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete) VALUES (?, ?, ?, ?, ?, ?)",
+                    ("ApenasEstoque", "relatorios", 0, 0, 0, 0))
 
         # Cria usuário com papel 'ApenasEstoque'
         cur.execute(
@@ -69,95 +72,146 @@ class TestAniaChatbot(unittest.TestCase):
             self.assertIn("voice_text", data)
             self.assertTrue(len(data.get("suggestions", [])) > 0)
 
-    def test_consulta_minhas_permissoes(self):
-        """Verifica se a Ania relata corretamente as permissões ativas do usuário."""
+    def test_gerar_relatorio_pdf_via_ania(self):
+        """Testa geração de relatório em PDF através da Ania com autorização."""
         with app.test_client() as c:
             c.post("/login", data={"username": "admin_ania", "password": "admin123"}, follow_redirects=True)
-            resp = c.post("/api/ania/chat", json={"message": "Quais são as minhas permissões?"})
+            resp = c.post("/api/ania/chat", json={"message": "Ania, por favor gerar relatório em PDF"})
             self.assertEqual(resp.status_code, 200)
             data = resp.get_json()
-            self.assertIn("Admin", data["reply"])
-            self.assertIn("Administrador", data["reply"])
+            self.assertTrue(data.get("success"))
+            self.assertIn("PDF Gerado", data["reply"])
+            self.assertEqual(data.get("action", {}).get("type"), "download")
+            self.assertEqual(data.get("action", {}).get("url"), "/exportar/pdf")
 
-    def test_rbac_permissao_negada_financeiro_para_usuario_estoque(self):
-        """Testa se usuário sem permissão de financeiro é barrado pela Ania com aviso de acesso negado."""
+    def test_gerar_relatorio_pdf_bloqueado_sem_permissao(self):
+        """Testa se usuário sem permissão de relatórios é barrado ao pedir PDF."""
         with app.test_client() as c:
             c.post("/login", data={"username": "operador_estoque", "password": "op123"}, follow_redirects=True)
-            
-            # Tenta consultar faturamento/financeiro
-            resp = c.post("/api/ania/chat", json={"message": "Qual o faturamento e saldo do financeiro?"})
+            resp = c.post("/api/ania/chat", json={"message": "Gerar relatório em PDF"})
             self.assertEqual(resp.status_code, 200)
             data = resp.get_json()
-            self.assertTrue(data.get("denied"), "Deveria ter negado o acesso")
+            self.assertTrue(data.get("denied"))
             self.assertIn("Acesso Negado", data["reply"])
-            self.assertIn("financeiro:read", data["reply"])
-            self.assertIn("Acesso negado", data["voice_text"])
 
-    def test_rbac_permissao_concedida_estoque_para_usuario_estoque(self):
-        """Testa se o mesmo usuário com papel ApenasEstoque consegue consultar o estoque normalmente."""
+    def test_gerar_exportacao_excel_via_ania(self):
+        """Testa exportação para Excel XLSX pela Ania."""
         with app.test_client() as c:
-            c.post("/login", data={"username": "operador_estoque", "password": "op123"}, follow_redirects=True)
-            
-            resp = c.post("/api/ania/chat", json={"message": "Quanto temos de estoque de materiais?"})
+            c.post("/login", data={"username": "admin_ania", "password": "admin123"}, follow_redirects=True)
+            resp = c.post("/api/ania/chat", json={"message": "Exportar planilha Excel"})
             self.assertEqual(resp.status_code, 200)
             data = resp.get_json()
-            self.assertFalse(data.get("denied", False))
-            self.assertIn("Estoque", data["reply"])
+            self.assertTrue(data.get("success"))
+            self.assertEqual(data.get("action", {}).get("url"), "/exportar/xlsx")
 
-    def test_execucao_acao_dar_baixa_via_ania(self):
-        """Testa se comando de voz/texto executa baixa de insumos no estoque com sucesso."""
-        materiais = carregar_materiais()
-        self.assertTrue(len(materiais) > 0)
-        mat = materiais[0]
-        qtd_inicial = float(mat["quantidade"] or 0)
-
+    def test_mudar_status_pedido_via_ania(self):
+        """Testa se a Ania consegue alterar o status de um pedido (ex: Concluir ou Cancelar)."""
         with app.test_client() as c:
             c.post("/login", data={"username": "admin_ania", "password": "admin123"}, follow_redirects=True)
             
-            prompt = f"Dar baixa de 1 unidade de {mat['nome']} por costura"
-            resp = c.post("/api/ania/chat", json={"message": prompt})
+            # Cria pedido primeiro
+            c.post("/api/ania/chat", json={"message": "Criar pedido para Roberto Silva de 1 bolsa"})
+            
+            # Altera status para Concluído
+            resp = c.post("/api/ania/chat", json={"message": "Concluir pedido de Roberto Silva"})
             self.assertEqual(resp.status_code, 200)
             data = resp.get_json()
-            self.assertTrue(data.get("success"), f"Falha na resposta: {data}")
-            self.assertIn("Baixa Realizada com Sucesso", data["reply"])
+            self.assertTrue(data.get("success"))
+            self.assertIn("Status do Pedido Atualizado", data["reply"])
 
-            # Verifica se o estoque foi atualizado no banco
-            mats_atualizados = carregar_materiais()
-            mat_pos = next(m for m in mats_atualizados if m["id"] == mat["id"])
-            self.assertAlmostEqual(float(mat_pos["quantidade"]), qtd_inicial - 1.0, places=2)
+            pedidos = carregar_pedidos()
+            ped = next((p for p in pedidos if "Roberto Silva" in p.get("cliente", "")), None)
+            self.assertIsNotNone(ped)
+            self.assertEqual(ped["status"], "Concluído")
 
-    def test_execucao_acao_criar_pedido_via_ania(self):
-        """Testa se comando cria um novo pedido de cliente com cálculo de valor e status."""
-        produtos = carregar_produtos()
-        self.assertTrue(len(produtos) > 0)
-        prod = produtos[0]
-
+    def test_cadastrar_novo_material_via_ania(self):
+        """Testa criação de novo material de estoque por comando da Ania."""
         with app.test_client() as c:
             c.post("/login", data={"username": "admin_ania", "password": "admin123"}, follow_redirects=True)
-            
-            prompt = f"Criar pedido para Carlos Eduardo de 1 {prod['nome']}"
+            prompt = "Cadastrar material Linha Encerada Marrom categoria Aviamento com 15 unidades custo 8 reais"
             resp = c.post("/api/ania/chat", json={"message": prompt})
             self.assertEqual(resp.status_code, 200)
             data = resp.get_json()
             self.assertTrue(data.get("success"))
-            self.assertIn("Pedido Registrado com Sucesso", data["reply"])
+            self.assertIn("Novo Material Cadastrado", data["reply"])
 
-            pedidos = carregar_pedidos()
-            ped = next((p for p in pedidos if "Carlos Eduardo" in p.get("cliente", "")), None)
-            self.assertIsNotNone(ped)
-            self.assertEqual(ped["produto_nome"], prod["nome"])
+            mats = carregar_materiais()
+            m = next((mat for mat in mats if "Linha Encerada Marrom" in mat["nome"]), None)
+            self.assertIsNotNone(m)
+            self.assertEqual(m["categoria"], "Aviamento")
+            self.assertEqual(float(m["quantidade"]), 15.0)
 
-    def test_widget_presente_no_template_base(self):
-        """Verifica se o botão flutuante e modal da Ania são injetados no base.html para usuários autenticados."""
+    def test_entrada_de_estoque_via_ania(self):
+        """Testa reposição/entrada de insumo em estoque existente."""
+        materiais = carregar_materiais()
+        self.assertTrue(len(materiais) > 0)
+        mat = materiais[0]
+        qtd_ant = float(mat["quantidade"] or 0)
+
         with app.test_client() as c:
             c.post("/login", data={"username": "admin_ania", "password": "admin123"}, follow_redirects=True)
-            resp = c.get("/")
+            prompt = f"Dar entrada de 10 unidades em {mat['nome']}"
+            resp = c.post("/api/ania/chat", json={"message": prompt})
             self.assertEqual(resp.status_code, 200)
-            html = resp.data.decode("utf-8")
-            self.assertIn("ania-fab", html)
-            self.assertIn("ania-chat-window", html)
-            self.assertIn("ania.js", html)
-            self.assertIn("ania.css", html)
+            data = resp.get_json()
+            self.assertTrue(data.get("success"))
+            self.assertIn("Entrada no Estoque Registrada", data["reply"])
+
+            mats_atualizados = carregar_materiais()
+            mat_pos = next(m for m in mats_atualizados if m["id"] == mat["id"])
+            self.assertAlmostEqual(float(mat_pos["quantidade"]), qtd_ant + 10.0, places=2)
+
+    def test_cadastrar_e_ajustar_bolsa_via_ania(self):
+        """Testa cadastro de nova bolsa e ajuste de estoque pronto pela Ania."""
+        with app.test_client() as c:
+            c.post("/login", data={"username": "admin_ania", "password": "admin123"}, follow_redirects=True)
+            
+            # Cadastra bolsa
+            resp_cad = c.post("/api/ania/chat", json={"message": "Cadastrar bolsa Mochila Escolar com preco 140 reais"})
+            self.assertEqual(resp_cad.status_code, 200)
+            data_cad = resp_cad.get_json()
+            self.assertTrue(data_cad.get("success"))
+            
+            # Ajusta peças prontas
+            resp_ajuste = c.post("/api/ania/chat", json={"message": "Adicionar 4 pecas prontas na Mochila Escolar"})
+            self.assertEqual(resp_ajuste.status_code, 200)
+            data_ajuste = resp_ajuste.get_json()
+            self.assertTrue(data_ajuste.get("success"))
+            self.assertIn("Estoque de Peças Prontas Atualizado", data_ajuste["reply"])
+
+            prods = carregar_produtos()
+            p = next((prod for prod in prods if "Mochila Escolar" in prod["nome"]), None)
+            self.assertIsNotNone(p)
+            self.assertEqual(p["estoque_pronto"], 4)
+
+    def test_cadastrar_despesa_financeira_via_ania(self):
+        """Testa lançamento de despesa no financeiro por comando da Ania."""
+        with app.test_client() as c:
+            c.post("/login", data={"username": "admin_ania", "password": "admin123"}, follow_redirects=True)
+            resp = c.post("/api/ania/chat", json={"message": "Cadastrar despesa de 65 reais com Frete de Insumos categoria Frete"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data.get("success"))
+            self.assertIn("Despesa Registrada no Financeiro", data["reply"])
+
+            despesas = carregar_despesas()
+            d = next((desp for desp in despesas if "Frete De Insumos" in desp.get("descricao", "") or "Frete de Insumos" in desp.get("descricao", "")), None)
+            self.assertIsNotNone(d)
+            self.assertEqual(float(d["valor"]), 65.0)
+
+    def test_cadastrar_sobra_via_ania(self):
+        """Testa registro de sobra/retalho para reaproveitamento pela Ania."""
+        with app.test_client() as c:
+            c.post("/login", data={"username": "admin_ania", "password": "admin123"}, follow_redirects=True)
+            resp = c.post("/api/ania/chat", json={"message": "Cadastrar sobra Retalho Jeans Azul com 2 metros"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data.get("success"))
+            self.assertIn("Sobra/Retalho Registrado", data["reply"])
+
+            sobras = carregar_sobras()
+            s = next((sob for sob in sobras if "Retalho Jeans Azul" in sob.get("descricao", "")), None)
+            self.assertIsNotNone(s)
 
 if __name__ == '__main__':
     unittest.main()

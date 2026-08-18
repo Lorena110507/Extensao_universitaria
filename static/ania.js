@@ -230,15 +230,18 @@
   // ── Renderização de Mensagens ─────────────────────────────────────────
   function formatarMarkdown(txt) {
     if (!txt) return '';
-    let html = txt
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
+    
+    // Suporte a markdown links [Texto](url)
+    let html = txt.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+|\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" class="btn-secondary" style="display:inline-block; padding:6px 14px; font-size:14px; text-decoration:none; margin:4px 0;">$1</a>');
+
+    // Negrito, itálico e código
+    html = html
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.06); padding:2px 5px; border-radius:4px; font-family:monospace; font-size:13px;">$1</code>')
+      .replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.06); padding:2px 6px; border-radius:4px; font-family:monospace; font-size:13px; color:var(--primary);">$1</code>')
       .replace(/\n\n/g, '</p><p>')
       .replace(/\n/g, '<br>');
+
     return `<p>${html}</p>`;
   }
 
@@ -247,7 +250,7 @@
     div.className = 'ania-msg ania-msg-user';
     div.innerHTML = `
       <div class="ania-msg-bubble font-serif">
-        <p>${txt.replace(/</g, '&lt;')}</p>
+        <p>${txt.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
       </div>
     `;
     messagesContainer.appendChild(div);
@@ -348,10 +351,22 @@
         renderizarSugestoes(data.suggestions);
       }
 
-      if (data.action && data.action.type === 'navigate' && data.action.url) {
-        setTimeout(() => {
-          window.location.href = data.action.url;
-        }, 1200);
+      if (data.action) {
+        if (data.action.type === 'navigate' && data.action.url) {
+          setTimeout(() => {
+            window.location.href = data.action.url;
+          }, 1200);
+        } else if (data.action.type === 'download' && data.action.url) {
+          setTimeout(() => {
+            const a = document.createElement('a');
+            a.href = data.action.url;
+            a.target = '_blank';
+            if (data.action.filename) a.download = data.action.filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          }, 600);
+        }
       }
     } catch (err) {
       console.error('Erro na requisição da Ania:', err);
