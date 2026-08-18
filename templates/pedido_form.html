@@ -11,7 +11,26 @@
   <a href="{{ url_for('produto_novo') }}" class="btn-primary" style="margin-top:16px;">➕ Cadastrar Produto</a>
 </div>
 {% else %}
-<form method="post">
+
+<!-- Caixa do Leitor de Código de Barras / GTIN -->
+<div style="background:var(--accent-lt); border:1.5px solid var(--accent); border-radius:14px; padding:16px; margin-bottom:18px;">
+  <label for="inp-gtin-pedido" style="display:flex; align-items:center; gap:6px; font-weight:700; color:var(--primary); margin-bottom:4px; font-size:15px;">
+    <span>🏷️</span> LEITOR DE CÓDIGO DE BARRAS / GTIN DA BOLSA
+  </label>
+  <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic; margin:0 0 10px 0;">
+    Aproxime o leitor de código de barras ou use a câmera para selecionar a bolsa automaticamente.
+  </p>
+  <div style="display:flex; gap:8px;">
+    <input id="inp-gtin-pedido" placeholder="Escaneie o código de barras ou digite o GTIN..." 
+           class="input-vintage" style="font-size:16px !important; flex:1;" autocomplete="off">
+    <button type="button" class="btn-scan" onclick="abrirScanner('inp-gtin-pedido', (val) => processarGtin(val || document.getElementById('inp-gtin-pedido').value))">
+      📷 Escanear
+    </button>
+  </div>
+  <div id="scanner-feedback" style="display:none; margin-top:10px; padding:10px 12px; border-radius:10px; font-size:14px; font-weight:600; transition: all 0.3s ease;"></div>
+</div>
+
+<form method="post" id="form-pedido">
 
   <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
 
@@ -19,25 +38,33 @@
     <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
       🙋 NOME DO CLIENTE
     </label>
-    <input name="cliente" required placeholder="Ex: Maria Silva" class="input-vintage" style="font-size:18px !important; font-family:'Playfair Display',serif;">
+    <input name="cliente" id="inp-cliente" required placeholder="Ex: Maria Silva" class="input-vintage" style="font-size:18px !important; font-family:'Playfair Display',serif;">
   </div>
 
   <div style="margin-bottom:18px;">
     <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:15px;">
-      👜 PRODUTO
+      👜 SELECIONE A BOLSA / PRODUTO
     </label>
-    <div style="display:flex; flex-direction:column; gap:8px;">
+    <div style="display:flex; flex-direction:column; gap:8px;" id="lista-produtos-pedido">
       {% for p in produtos %}
-      <label style="display:flex; align-items:center; gap:10px; background: {{ 'var(--accent-lt)' if loop.first else 'var(--card)' }};
-                    border:1.5px solid {{ 'var(--primary)' if loop.first else 'var(--border)' }};
-                    border-radius:12px; padding:12px 14px; cursor:pointer;" id="lbl-prod-{{ p.id }}">
+      {% set is_selected = (produto_id_inicial and p.id == produto_id_inicial) or (gtin_inicial and p.gtin == gtin_inicial) or (not produto_id_inicial and not gtin_inicial and loop.first) %}
+      <label style="display:flex; align-items:center; gap:10px; background: {{ 'var(--accent-lt)' if is_selected else 'var(--card)' }};
+                    border:1.5px solid {{ 'var(--primary)' if is_selected else 'var(--border)' }};
+                    border-radius:12px; padding:12px 14px; cursor:pointer; transition: all 0.25s ease;" 
+             id="lbl-prod-{{ p.id }}" 
+             data-prod-id="{{ p.id }}" 
+             data-prod-gtin="{{ (p.gtin or '')|lower }}" 
+             data-prod-nome="{{ p.nome|lower }}">
         <input type="radio" name="produto_id" value="{{ p.id }}" data-preco="{{ p.preco_venda }}" data-pronto="{{ p.estoque_pronto }}"
-               {% if loop.first %}checked{% endif %} onchange="atualizarProduto()" style="accent-color:var(--primary); width:18px; height:18px;">
+               data-gtin="{{ p.gtin or '' }}" data-nome="{{ p.nome }}"
+               {% if is_selected %}checked{% endif %} onchange="atualizarProduto()" style="accent-color:var(--primary); width:18px; height:18px;">
         <span style="font-size:22px;">{{ p.emoji }}</span>
         <div style="flex:1; min-width:0;">
           <span class="font-crimson" style="font-size:17px; color:var(--text); font-weight:600; display:block;">{{ p.nome }}</span>
           {% if p.gtin %}
-          <span style="font-size:12px; color:var(--muted); font-family:monospace;">GTIN {{ p.gtin }}</span>
+          <span style="font-size:12px; color:var(--muted); font-family:monospace; background:rgba(0,0,0,0.04); padding:1px 6px; border-radius:4px;">
+            GTIN: {{ p.gtin }}
+          </span>
           {% endif %}
         </div>
         {% if p.estoque_pronto > 0 %}
@@ -85,11 +112,22 @@
 
 {% block scripts %}
 <script>
+const produtosCadastrados = {{ produtos|tojson }};
+const inpGtin = document.getElementById('inp-gtin-pedido');
+const feedbackEl = document.getElementById('scanner-feedback');
+
 function highlightProduto() {
   document.querySelectorAll('[id^="lbl-prod-"]').forEach(el => {
     const inp = el.querySelector('input[type=radio]');
-    el.style.borderColor = inp.checked ? 'var(--primary)' : 'var(--border)';
-    el.style.background  = inp.checked ? 'var(--accent-lt)' : 'var(--card)';
+    if (inp.checked) {
+      el.style.borderColor = 'var(--primary)';
+      el.style.background  = 'var(--accent-lt)';
+      el.style.boxShadow   = '0 2px 8px rgba(0,0,0,0.08)';
+    } else {
+      el.style.borderColor = 'var(--border)';
+      el.style.background  = 'var(--card)';
+      el.style.boxShadow   = 'none';
+    }
   });
 }
 
@@ -97,7 +135,7 @@ function atualizarProduto() {
   highlightProduto();
   const marcado = document.querySelector('input[name=produto_id]:checked');
   const qtd = parseInt(document.getElementById('inp-quantidade').value) || 1;
-  const preco = marcado ? parseFloat(marcado.dataset.preco) : 0;
+  const preco = marcado ? parseFloat(marcado.dataset.preco || 0) : 0;
   const pronto = marcado ? parseInt(marcado.dataset.pronto || 0) : 0;
   const total = (preco * qtd).toFixed(2).replace('.', ',');
   document.getElementById('valor-total').textContent = 'R$ ' + total;
@@ -112,7 +150,120 @@ function atualizarProduto() {
   }
 }
 
-document.getElementById('inp-quantidade').addEventListener('input', atualizarProduto);
+function exibirFeedback(mensagem, tipo) {
+  if (!feedbackEl) return;
+  feedbackEl.style.display = 'block';
+  if (tipo === 'sucesso') {
+    feedbackEl.style.background = '#d4edda';
+    feedbackEl.style.border = '1.5px solid var(--success)';
+    feedbackEl.style.color = '#155724';
+  } else if (tipo === 'erro') {
+    feedbackEl.style.background = '#f8d7da';
+    feedbackEl.style.border = '1.5px solid var(--danger)';
+    feedbackEl.style.color = '#721c24';
+  } else {
+    feedbackEl.style.background = 'var(--card)';
+    feedbackEl.style.border = '1.5px solid var(--border)';
+    feedbackEl.style.color = 'var(--text)';
+  }
+  feedbackEl.innerHTML = mensagem;
+}
+
+function processarGtin(codigoBruto) {
+  if (!codigoBruto) return;
+  const termo = String(codigoBruto).trim().toLowerCase();
+  if (!termo) return;
+
+  // 1. Busca produto por GTIN exato
+  let match = produtosCadastrados.find(p => (p.gtin || '').trim().toLowerCase() === termo);
+
+  // 2. Se não encontrou por GTIN exato, busca por nome exato ou contenção
+  if (!match) {
+    match = produtosCadastrados.find(p => (p.nome || '').trim().toLowerCase() === termo);
+  }
+
+  // 3. Se ainda não encontrou e o termo possui mais de 2 letras, busca substring
+  if (!match && termo.length >= 3) {
+    match = produtosCadastrados.find(p => (p.gtin || '').toLowerCase().includes(termo) || (p.nome || '').toLowerCase().includes(termo));
+  }
+
+  if (match) {
+    const radio = document.querySelector(`input[name=produto_id][value="${match.id}"]`);
+    const lbl = document.getElementById(`lbl-prod-${match.id}`);
+    if (radio) {
+      radio.checked = true;
+      atualizarProduto();
+      if (lbl) {
+        lbl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        lbl.style.transform = 'scale(1.02)';
+        setTimeout(() => { lbl.style.transform = 'none'; }, 300);
+      }
+    }
+
+    if (typeof tocarBeep === 'function') {
+      try { tocarBeep(); } catch(e) {}
+    }
+
+    const infoPronta = (match.estoque_pronto > 0) 
+      ? ` · <span style="color:var(--success); font-weight:700;">🛍️ ${match.estoque_pronto} pronta(s)</span>` 
+      : ' · <span style="color:var(--muted);">(Sob encomenda)</span>';
+
+    exibirFeedback(
+      `✅ Bolsa selecionada: <strong>${match.emoji || '👜'} ${match.nome}</strong> (R$ ${(parseFloat(match.preco_venda) || 0).toFixed(2).replace('.', ',')})${infoPronta}`,
+      'sucesso'
+    );
+
+    // Se o cliente não estiver preenchido, foca no nome do cliente
+    const inpCliente = document.getElementById('inp-cliente');
+    if (inpCliente && !inpCliente.value.trim()) {
+      inpCliente.focus();
+    }
+  } else {
+    exibirFeedback(
+      `⚠️ Nenhuma bolsa encontrada com o código / GTIN: <strong>${codigoBruto}</strong>. Verifique o GTIN cadastrado em <a href="/produtos" style="text-decoration:underline; color:inherit;">Produtos</a>.`,
+      'erro'
+    );
+  }
+}
+
+if (inpGtin) {
+  // Suporte a leitor de código de barras físico USB / Bluetooth (que envia Enter)
+  inpGtin.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      processarGtin(inpGtin.value);
+    }
+  });
+
+  // Reação imediata durante digitação/leitura
+  inpGtin.addEventListener('input', () => {
+    const val = inpGtin.value.trim();
+    if (val.length >= 6) {
+      // Se for tamanho de GTIN ou código longo, tenta identificar
+      const match = produtosCadastrados.find(p => (p.gtin || '').trim().toLowerCase() === val.toLowerCase());
+      if (match) {
+        processarGtin(val);
+      }
+    }
+  });
+}
+
+document.getElementById('inp-quantidade')?.addEventListener('input', atualizarProduto);
+
+// Inicialização
 atualizarProduto();
+
+// Se veio com GTIN inicial na URL (ex: /pedidos/novo?gtin=...)
+const gtinInicialUrl = "{{ gtin_inicial or '' }}";
+const prodIdInicialUrl = "{{ produto_id_inicial or '' }}";
+if (gtinInicialUrl) {
+  if (inpGtin) inpGtin.value = gtinInicialUrl;
+  processarGtin(gtinInicialUrl);
+} else if (prodIdInicialUrl) {
+  const match = produtosCadastrados.find(p => p.id === prodIdInicialUrl);
+  if (match && match.gtin && inpGtin) {
+    inpGtin.value = match.gtin;
+  }
+}
 </script>
 {% endblock %}

@@ -3,7 +3,12 @@
 {% set subtitulo = pedidos|length ~ " pedido(s)" %}
 {% block conteudo %}
 
-<a href="{{ url_for('pedido_novo') }}" class="btn-primary" style="margin-bottom:16px;">➕ Novo Pedido</a>
+<div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+  <a href="{{ url_for('pedido_novo') }}" class="btn-primary" style="flex:1; min-width:160px; text-align:center;">➕ Novo Pedido</a>
+  <button type="button" class="btn-scan" style="padding:10px 16px; font-size:15px;" onclick="abrirScanner(null, (gtin) => { window.location.href = '{{ url_for('pedido_novo') }}?gtin=' + encodeURIComponent(gtin); })">
+    📷 Ler Código da Bolsa
+  </button>
+</div>
 
 {% if not pedidos %}
 <div class="card" style="padding:30px; text-align:center;">

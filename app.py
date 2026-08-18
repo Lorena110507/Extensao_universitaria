@@ -2954,7 +2954,15 @@ def pedido_novo():
             flash(f"Pedido de {cliente} registrado.")
         return redirect(url_for("pedidos"))
 
-    return render_template("pedido_form.html", produtos=produtos_lista)
+    gtin_inicial = request.args.get("gtin", "").strip()
+    produto_id_inicial = request.args.get("produto_id", "").strip()
+
+    return render_template(
+        "pedido_form.html",
+        produtos=produtos_lista,
+        gtin_inicial=gtin_inicial,
+        produto_id_inicial=produto_id_inicial
+    )
 
 
 @app.route("/pedidos/<pedido_id>/status", methods=["POST"])
