@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='ania.css') }}" rel="stylesheet">
 </head>
 <body>
 
@@ -306,6 +307,9 @@
       }
     }
   </script>
+
+  {% include "ania_widget.html" %}
+  <script src="{{ url_for('static', filename='ania.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

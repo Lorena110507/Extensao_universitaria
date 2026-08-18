@@ -5,7 +5,7 @@ import uuid
 import secrets
 import sqlite3
 from datetime import datetime, timezone, timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, make_response, session, g, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, make_response, session, g, send_from_directory, jsonify
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -1139,10 +1139,16 @@ def require_login():
             # expire session
             session.pop('user_id', None)
             session.pop('session_version', None)
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "unauthorized", "denied": True, "reply": "🔒 Sessão expirada. Por favor faça login novamente.", "voice_text": "Sua sessão expirou."}), 401
             flash('Sessão expirada. Por favor faça login novamente.')
             return redirect(url_for('login'))
         g.user = user
         return
+
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "unauthorized", "denied": True, "reply": "🔒 Sessão Necessária: Por favor, faça login para continuar.", "voice_text": "Por favor, faça login para utilizar a assistente."}), 401
+
     return redirect(url_for("login", next=request.path))
 
 
@@ -4403,6 +4409,43 @@ def exportar_tudo_xlsx():
     wb.save(buf)
     buf.seek(0)
     return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='export_atelie_haiti.xlsx')
+
+
+# ── Chatbot Ania (Assistente Virtual com Voz, Texto e RBAC) ───────────────────
+import ania_assistant
+_ania_engine = None
+
+def get_ania_engine():
+    global _ania_engine
+    if _ania_engine is None:
+        _ania_engine = ania_assistant.AniaAssistant(sys.modules[__name__])
+    return _ania_engine
+
+
+@app.route("/api/ania/chat", methods=["POST"])
+def ania_chat():
+    if not g.get("user"):
+        return jsonify({
+            "success": False,
+            "denied": True,
+            "reply": "🔒 **Sessão Necessária**: Você precisa estar conectado ao sistema para conversar com a Ania.",
+            "voice_text": "Por favor, faça login para utilizar a assistente.",
+            "suggestions": ["Fazer login"]
+        }), 401
+
+    data = request.get_json(silent=True) or {}
+    mensagem = data.get("message", "").strip()
+    if not mensagem:
+        return jsonify({
+            "success": True,
+            "reply": "Estou te ouvindo! O que você gostaria de fazer no ateliê?",
+            "voice_text": "Estou te ouvindo! O que você gostaria de fazer no ateliê?",
+            "suggestions": ["📦 Consultar estoque", "🧾 Pedidos", "📊 Alertas", "Minhas permissões"]
+        })
+
+    engine = get_ania_engine()
+    resposta = engine.processar_mensagem(mensagem, g.user)
+    return jsonify(resposta)
 
 
 # Fallback — mantém a navegação de pé para qualquer rota que ainda não exista.
