@@ -1,31 +1,93 @@
 <!doctype html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Login - Painel</title>
-    <style>
-      body { font-family: system-ui, sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; background:#f7f7f8 }
-      .box { background:white; padding:24px; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.08); width:320px }
-      input { width:100%; padding:8px 10px; margin:8px 0; }
-      button { width:100%; padding:8px 10px; }
-    </style>
-  </head>
-  <body>
-    <div class="box">
-      <h3>Entrar no Painel</h3>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#5c2d0e" />
+  <title>Entrar no Sistema · Ateliê Haiti</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+  <link href="/static/style.css" rel="stylesheet">
+  <style>
+    .login-container {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .login-card {
+      width: 100%;
+      max-width: 420px;
+      padding: 32px 28px;
+      border-radius: 20px;
+      box-shadow: 0 8px 30px rgba(92,45,14,.12), 0 2px 8px rgba(92,45,14,.06);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-container">
+    <div class="card card-ornament login-card">
+      
+      <!-- Brand Header -->
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="width: 68px; height: 68px; margin: 0 auto 12px; border-radius: 16px; background: var(--accent-lt); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(193,127,36,0.2);">
+          <span style="font-size: 32px;">✂️</span>
+        </div>
+        <h2 class="font-serif" style="margin: 0; font-size: 26px; color: var(--primary); font-weight: 800; letter-spacing: -0.5px;">
+          Ateliê Haiti
+        </h2>
+        <p class="font-crimson" style="margin: 4px 0 0 0; font-size: 16px; color: var(--muted); font-style: italic;">
+          Gestão Artesanal &amp; Produção
+        </p>
+      </div>
+
+      <div class="ornament" style="margin: 0 0 20px 0;">· · ·</div>
+
+      <!-- Flash Messages -->
       {% with messages = get_flashed_messages() %}
         {% if messages %}
-          <div style="color: #a33">{{ messages[0] }}</div>
+          {% for msg in messages %}
+            <div style="background: var(--danger-lt); border: 1.5px solid var(--danger); border-radius: 12px; padding: 12px 14px; margin-bottom: 18px; color: var(--danger); font-size: 15px; font-weight: 600; text-align: center;">
+              ⚠️ {{ msg }}
+            </div>
+          {% endfor %}
         {% endif %}
       {% endwith %}
+
+      <!-- Login Form -->
       <form method="post">
-        <label>Usuário</label>
-        <input name="username" autofocus />
-        <label>Senha</label>
-        <input name="password" type="password" />
-        <button type="submit">Entrar</button>
+        <div style="margin-bottom: 18px;">
+          <label style="display: block; font-weight: 700; color: var(--primary); margin-bottom: 6px; font-size: 15px;">
+            👤 USUÁRIO
+          </label>
+          <input name="username" class="input-vintage" style="font-size: 17px !important;" autofocus required placeholder="Digite seu nome de usuário">
+        </div>
+
+        <div style="margin-bottom: 24px;">
+          <label style="display: block; font-weight: 700; color: var(--primary); margin-bottom: 6px; font-size: 15px;">
+            🔒 SENHA
+          </label>
+          <input name="password" type="password" class="input-vintage" style="font-size: 17px !important;" required placeholder="••••••••">
+        </div>
+
+        <button type="submit" class="btn-primary" style="font-size: 18px !important; padding: 14px;">
+          Entrar no Painel →
+        </button>
       </form>
+
+      <div class="ornament" style="margin: 24px 0 10px 0;">✦ ✦ ✦</div>
+      <p class="font-crimson" style="text-align: center; color: var(--muted); font-style: italic; font-size: 14px; margin: 0;">
+        Conectados pela Comunidade · Favela do Haiti, SP
+      </p>
+
     </div>
-  </body>
+  </div>
+
+</body>
 </html>

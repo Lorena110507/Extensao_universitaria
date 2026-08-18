@@ -8,70 +8,37 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
 </head>
 <body>
 
-  <header style="background:linear-gradient(135deg,var(--primary-dk) 0%,var(--primary) 100%);
-                 color:#fef9f0; padding:16px; position:sticky; top:0; z-index:40;
-                 box-shadow:0 3px 12px rgba(92,45,14,.3);">
-    <div style="max-width:520px; margin:0 auto; display:flex; align-items:center; gap:12px;">
-      {% if request.path != '/' %}
-      <a href="{{ url_for('home') }}" style="color:#fde9c2; font-size:22px; font-weight:700; text-decoration:none; line-height:1;">←</a>
-      {% endif %}
-      <div style="flex:1; min-width:0;">
-        <p class="font-serif" style="font-size:20px; font-weight:700; line-height:1.2;">{{ titulo_pagina or "✂️ Ateliê Haiti" }}</p>
-        {% if subtitulo %}
-        <p class="font-crimson" style="font-size:15px; color:#fde9c2; font-style:italic;">{{ subtitulo }}</p>
-        {% endif %}
-      </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        {% if g.get('user') %}
-          <a href="{{ url_for('minha_conta') }}" style="display:flex; align-items:center; gap:8px; text-decoration:none; color:inherit;" title="Editar meu perfil">
-            {% if g.user.get('avatar') %}
-              <img src="{{ url_for('uploaded_file', filename=g.user.get('avatar')) }}" alt="Avatar" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1.5px solid #fde9c2;">
-            {% else %}
-              <div style="width:34px; height:34px; border-radius:50%; background:#fde9c2; color:var(--primary); font-weight:700; font-size:15px; display:flex; align-items:center; justify-content:center; border:1.5px solid rgba(255,255,255,0.3);">
-                {{ (g.user.get('nome') or g.user.get('username'))[:1]|upper }}
-              </div>
-            {% endif %}
-            <div style="font-size:15px; color:#fde9c2; text-align:right; max-width:110px; line-height:1.2;">
-              <div style="font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ g.user.get('nome') or g.user.get('username') }}</div>
-              <div style="font-size:13px; color:#f7e7c9;">{% set rols = usuario_roles_lista(g.user) %}{{ rols[0] if rols else 'Colaborador' }}{% if rols|length > 1 %} +{{ rols|length - 1 }}{% endif %}</div>
-            </div>
-          </a>
-          <a href="{{ url_for('logout') }}" class="btn-ghost" style="margin-left:4px; color:#fde9c2; border-color:rgba(255,255,255,0.15); padding:6px 10px; font-size:15px;">Sair</a>
-        {% else %}
-          <a href="{{ url_for('login') }}" class="btn-ghost" style="margin-left:6px; color:#fde9c2; border-color:rgba(255,255,255,0.15);">Entrar</a>
-        {% endif %}
-        <button id="btn-menu" class="btn-menu" aria-label="Abrir menu" type="button">☰</button>
-      </div>
-    </div>
-  </header>
-
+  <!-- Menu lateral (Drawer fixo em Desktop, Gaveta em Mobile) -->
   <div id="drawer-overlay"></div>
   <aside id="drawer">
     <div class="drawer-header">
       {% if g.get('user') %}
-      <a href="{{ url_for('minha_conta') }}" style="display:flex; align-items:center; gap:10px; text-decoration:none; color:inherit; margin-bottom:10px; padding:6px; border-radius:8px; background:rgba(255,255,255,0.06);">
+      <a href="{{ url_for('minha_conta') }}" class="drawer-user-card" title="Editar meu perfil">
         {% if g.user.get('avatar') %}
-          <img src="{{ url_for('uploaded_file', filename=g.user.get('avatar')) }}" alt="Avatar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:1.5px solid #fde9c2;">
+          <img src="{{ url_for('uploaded_file', filename=g.user.get('avatar')) }}" alt="Avatar" class="avatar-img">
         {% else %}
-          <div style="width:40px; height:40px; border-radius:50%; background:#fde9c2; color:var(--primary); font-weight:700; font-size:17px; display:flex; align-items:center; justify-content:center;">
+          <div class="avatar-placeholder">
             {{ (g.user.get('nome') or g.user.get('username'))[:1]|upper }}
           </div>
         {% endif %}
         <div style="flex:1; min-width:0;">
-          <div style="font-weight:700; font-size:15px; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ g.user.get('nome') or g.user.get('username') }}</div>
-          <div style="font-size:14px; color:#fde9c2;">{% set rols2 = usuario_roles_lista(g.user) %}{{ rols2|join(', ') if rols2 else 'Colaborador' }} · <span style="text-decoration:underline;">Meu Perfil ⚙️</span></div>
+          <div class="drawer-user-name">{{ g.user.get('nome') or g.user.get('username') }}</div>
+          <div class="drawer-user-role">
+            {% set rols2 = usuario_roles_lista(g.user) %}
+            {{ rols2|join(', ') if rols2 else 'Colaborador' }} · <span style="text-decoration:underline;">Perfil ⚙️</span>
+          </div>
         </div>
       </a>
       {% endif %}
-      <p class="font-serif" style="font-size:18px; font-weight:700; letter-spacing:.5px;">✂️ Ateliê Haiti</p>
-      <p class="font-crimson" style="font-size:15px; color:#fde9c2; font-style:italic; margin-top:2px;">Gestão Artesanal</p>
+      <p class="font-serif brand-title">✂️ Ateliê Haiti</p>
+      <p class="font-crimson brand-subtitle">Gestão Artesanal</p>
     </div>
-    <nav>
+    <nav class="drawer-nav">
       <a class="drawer-link {{ 'active' if request.path == '/' }}" href="{{ url_for('home') }}"><span class="ic">🏠</span> Início</a>
       {% if can_access_tab('estoque') %}
       <a class="drawer-link {{ 'active' if request.path == '/estoque' }}" href="{{ url_for('estoque') }}"><span class="ic">📦</span> Estoque</a>
@@ -106,10 +73,50 @@
     </nav>
     <div class="drawer-footer">
       <div class="ornament">✦ ✦ ✦</div>
-      <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic;">Conectados pela Comunidade · Favela do Haiti, SP</p>
+      <p class="font-crimson footer-text">Conectados pela Comunidade<br>Favela do Haiti, SP</p>
     </div>
   </aside>
 
+  <!-- Cabeçalho Superior -->
+  <header class="app-header">
+    <div class="header-inner">
+      {% if request.path != '/' %}
+      <a href="{{ url_for('home') }}" class="header-back-btn" aria-label="Voltar ao início">←</a>
+      {% endif %}
+      <div style="flex:1; min-width:0;">
+        <h1 class="font-serif header-title">{{ titulo_pagina or "✂️ Ateliê Haiti" }}</h1>
+        {% if subtitulo %}
+        <p class="font-crimson header-subtitle">{{ subtitulo }}</p>
+        {% endif %}
+      </div>
+      <div class="header-actions">
+        {% if g.get('user') %}
+          <a href="{{ url_for('minha_conta') }}" class="header-user-btn" title="Meu perfil">
+            {% if g.user.get('avatar') %}
+              <img src="{{ url_for('uploaded_file', filename=g.user.get('avatar')) }}" alt="Avatar" class="avatar-img-sm">
+            {% else %}
+              <div class="avatar-placeholder-sm">
+                {{ (g.user.get('nome') or g.user.get('username'))[:1]|upper }}
+              </div>
+            {% endif %}
+            <div class="header-user-text">
+              <div class="header-user-name">{{ g.user.get('nome') or g.user.get('username') }}</div>
+              <div class="header-user-badge">
+                {% set rols = usuario_roles_lista(g.user) %}
+                {{ rols[0] if rols else 'Colaborador' }}{% if rols|length > 1 %} +{{ rols|length - 1 }}{% endif %}
+              </div>
+            </div>
+          </a>
+          <a href="{{ url_for('logout') }}" class="btn-ghost btn-logout" title="Sair do sistema">Sair</a>
+        {% else %}
+          <a href="{{ url_for('login') }}" class="btn-ghost btn-login">Entrar</a>
+        {% endif %}
+        <button id="btn-menu" class="btn-menu" aria-label="Abrir menu" type="button">☰</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mensagens Flash -->
   {% with mensagens = get_flashed_messages() %}
   {% if mensagens %}
   <div id="flash-bar">
@@ -117,24 +124,187 @@
     <div class="flash-msg">{{ msg }}</div>
     {% endfor %}
   </div>
-  <script>setTimeout(() => { const el = document.getElementById('flash-bar'); if (el) el.remove(); }, 3000);</script>
+  <script>setTimeout(() => { const el = document.getElementById('flash-bar'); if (el) el.remove(); }, 3500);</script>
   {% endif %}
   {% endwith %}
 
+  <!-- Conteúdo Principal -->
   <main class="main-content">
     {% block conteudo %}{% endblock %}
   </main>
 
+  <!-- Modal Scanner de Código de Barras e QR Code -->
+  <div id="modal-scanner-overlay" style="display:none; position:fixed; inset:0; background:rgba(44,26,14,0.75); z-index:9999; backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
+    <div class="card card-ornament" style="max-width:460px; width:100%; padding:20px; text-align:center; position:relative; background:var(--card); box-shadow:0 12px 40px rgba(0,0,0,0.35);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 class="font-serif" style="margin:0; font-size:20px; color:var(--primary); font-weight:800;">
+          📷 Leitor de Código
+        </h3>
+        <button type="button" onclick="fecharScanner()" class="btn-ghost" style="padding:6px 10px; font-size:18px; border-radius:50%; min-height:auto; width:36px; height:36px; display:flex; align-items:center; justify-content:center;">✕</button>
+      </div>
+
+      <p class="font-crimson" style="margin:0 0 14px 0; font-size:15px; color:var(--muted); font-style:italic;">
+        Aponte a câmera para o <strong>Código de Barras (GTIN/EAN)</strong> ou <strong>QR Code</strong>.
+      </p>
+
+      <!-- Viewfinder Container -->
+      <div id="qr-reader-container" style="position:relative; width:100%; border-radius:14px; overflow:hidden; border:2px solid var(--accent); background:#000; min-height:260px;">
+        <div id="qr-reader" style="width:100%;"></div>
+        <div class="scanner-laser"></div>
+      </div>
+
+      <div id="scanner-status" class="font-crimson" style="margin-top:10px; font-size:15px; color:var(--primary); font-weight:600;">
+        Iniciando câmera...
+      </div>
+
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <button type="button" id="btn-trocar-camera" onclick="trocarCamera()" class="btn-secondary" style="flex:1; font-size:14px !important; padding:8px 12px; display:none;">
+          🔄 Alternar Câmera
+        </button>
+        <button type="button" onclick="fecharScanner()" class="btn-ghost" style="flex:1; font-size:14px !important; padding:8px 12px;">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script>
     const drawer  = document.getElementById('drawer');
     const overlay = document.getElementById('drawer-overlay');
     const btnMenu = document.getElementById('btn-menu');
 
-    function abrirMenu() { drawer.classList.add('open'); overlay.classList.add('open'); }
-    function fecharMenu() { drawer.classList.remove('open'); overlay.classList.remove('open'); }
+    function abrirMenu() { 
+      if (drawer) drawer.classList.add('open'); 
+      if (overlay) overlay.classList.add('open'); 
+    }
+    function fecharMenu() { 
+      if (drawer) drawer.classList.remove('open'); 
+      if (overlay) overlay.classList.remove('open'); 
+    }
 
-    btnMenu.addEventListener('click', abrirMenu);
-    overlay.addEventListener('click', fecharMenu);
+    if (btnMenu) btnMenu.addEventListener('click', abrirMenu);
+    if (overlay) overlay.addEventListener('click', fecharMenu);
+
+    // ── Scanner Global Controller (HTML5-QRCode) ──────────────────────
+    let html5QrCode = null;
+    let scannerTargetInputId = null;
+    let scannerCallback = null;
+    let camerasDisponiveis = [];
+    let cameraAtualIndex = 0;
+
+    function tocarBeep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime); // 880Hz (nota Lá)
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.15);
+      } catch (e) {}
+      if (navigator.vibrate) {
+        navigator.vibrate(100);
+      }
+    }
+
+    async function abrirScanner(targetInputId, callback) {
+      scannerTargetInputId = targetInputId;
+      scannerCallback = callback;
+      const modal = document.getElementById('modal-scanner-overlay');
+      const statusEl = document.getElementById('scanner-status');
+      modal.style.display = 'flex';
+      statusEl.textContent = 'Solicitando acesso à câmera...';
+
+      if (!window.Html5Qrcode) {
+        statusEl.textContent = 'Erro: biblioteca de scanner não carregada.';
+        return;
+      }
+
+      if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode('qr-reader');
+      }
+
+      try {
+        camerasDisponiveis = await Html5Qrcode.getCameras();
+        const btnTrocar = document.getElementById('btn-trocar-camera');
+        if (camerasDisponiveis && camerasDisponiveis.length > 1) {
+          btnTrocar.style.display = 'block';
+        } else {
+          btnTrocar.style.display = 'none';
+        }
+
+        // Prefere câmera traseira (environment) em celulares
+        const cameraId = camerasDisponiveis && camerasDisponiveis.length > 0 
+          ? (camerasDisponiveis.find(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('traseira'))?.id || camerasDisponiveis[0].id)
+          : { facingMode: 'environment' };
+
+        iniciarLeituraCamera(cameraId);
+      } catch (err) {
+        console.warn('Erro ao obter câmeras:', err);
+        iniciarLeituraCamera({ facingMode: 'environment' });
+      }
+    }
+
+    function iniciarLeituraCamera(cameraConfig) {
+      const statusEl = document.getElementById('scanner-status');
+      const config = {
+        fps: 15,
+        qrbox: { width: 260, height: 180 },
+        aspectRatio: 1.0
+      };
+
+      html5QrCode.start(
+        cameraConfig,
+        config,
+        (decodedText, decodedResult) => {
+          tocarBeep();
+          fecharScanner();
+          if (scannerTargetInputId) {
+            const input = document.getElementById(scannerTargetInputId);
+            if (input) {
+              input.value = decodedText.trim();
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+              input.focus();
+            }
+          }
+          if (typeof scannerCallback === 'function') {
+            scannerCallback(decodedText.trim(), decodedResult);
+          }
+        },
+        (errorMessage) => {
+          // Varredura contínua
+        }
+      ).then(() => {
+        statusEl.textContent = '🔍 Câmera ativa. Posicione o código dentro da mira.';
+      }).catch(err => {
+        statusEl.textContent = 'Não foi possível acessar a câmera: ' + err;
+      });
+    }
+
+    async function trocarCamera() {
+      if (!html5QrCode || camerasDisponiveis.length < 2) return;
+      try {
+        await html5QrCode.stop();
+        cameraAtualIndex = (cameraAtualIndex + 1) % camerasDisponiveis.length;
+        iniciarLeituraCamera(camerasDisponiveis[cameraAtualIndex].id);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function fecharScanner() {
+      const modal = document.getElementById('modal-scanner-overlay');
+      modal.style.display = 'none';
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().catch(() => {});
+      }
+    }
   </script>
   {% block scripts %}{% endblock %}
 </body>

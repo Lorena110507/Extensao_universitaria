@@ -2,20 +2,25 @@
 {% set titulo_pagina = "Dar Baixa" %}
 {% block conteudo %}
 
-<form method="post">
+<form method="post" id="form-baixa">
 
   <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
 
-  <div style="margin-bottom:12px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
+  <div style="margin-bottom:14px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:16px;">
       🔍 BUSCAR MATERIAL (nome ou GTIN)
     </label>
-    <input id="busca-material" placeholder="Digite o nome ou escaneie o GTIN..." class="input-vintage" style="font-size:17px !important;" autocomplete="off">
+    <div style="display:flex; gap:8px;">
+      <input id="busca-material" placeholder="Digite o nome ou escaneie o GTIN..." class="input-vintage" style="font-size:17px !important; flex:1;" autocomplete="off">
+      <button type="button" class="btn-scan" onclick="abrirScanner('busca-material', () => document.getElementById('busca-material').dispatchEvent(new Event('input')))">
+        📷 Escanear
+      </button>
+    </div>
   </div>
 
   <div style="margin-bottom:20px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:15px;">
-      📦 QUAL MATERIAL FOI USADO?
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:16px;">
+      📦 QUAL MATERIAL FOI USADO? <span style="color:var(--danger);">*</span>
     </label>
     <select name="material_id" id="sel-mat" onchange="atualizarInfo()" required class="input-vintage" style="font-size:17px !important; font-family:'Crimson Text',serif;">
       <option value="">— Escolha um material —</option>
@@ -23,7 +28,7 @@
       <option value="{{ m.id }}" data-qtd="{{ m.quantidade }}" data-unid="{{ m.unidade }}"
               data-nome="{{ m.nome|lower }}" data-gtin="{{ (m.gtin or '')|lower }}"
               {% if m.id == mid_preselecionado %}selected{% endif %}>
-        {{ m.nome }}{% if m.gtin %} · GTIN {{ m.gtin }}{% endif %}  ·  {{ m.quantidade }} {{ m.unidade }}
+        {{ m.emoji }} {{ m.nome }}{% if m.gtin %} · GTIN {{ m.gtin }}{% endif %}  ·  {{ m.quantidade }} {{ m.unidade }}
       </option>
       {% endfor %}
     </select>
@@ -31,41 +36,41 @@
 
   <div id="info-box" style="display:none; background:var(--accent-lt); border:1.5px solid var(--accent);
        border-radius:12px; padding:14px 16px; margin-bottom:20px; text-align:center;">
-    <p class="font-crimson" style="color:var(--primary); font-size:17px; font-style:italic;">Estoque atual</p>
-    <p class="font-serif" style="font-size:32px; font-weight:700; color:var(--primary); line-height:1.2;">
+    <p class="font-crimson" style="color:var(--primary); font-size:17px; font-style:italic; margin:0 0 4px 0;">Estoque atual disponível</p>
+    <p class="font-serif" style="font-size:32px; font-weight:700; color:var(--primary); line-height:1.2; margin:0;">
       <span id="qtd-atual">—</span>
-      <span id="unid-atual" style="font-size:18px; font-weight:400;"></span>
+      <span id="unid-atual" style="font-size:20px; font-weight:600;"></span>
     </p>
   </div>
 
   <div style="margin-bottom:20px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:15px;">
-      📏 QUANTO FOI USADO?
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:16px;">
+      📏 QUANTO FOI USADO? <span style="color:var(--danger);">*</span>
     </label>
-    <input name="quantidade" type="number" min="0.01" step="0.01" placeholder="0" required class="input-vintage" id="inp-qtd" style="text-align:center; font-size:36px !important; font-weight:800; color:var(--primary); height:80px;">
-    <p class="font-crimson" style="text-align:center; color:var(--muted); font-style:italic; margin-top:6px;" id="label-unid"> </p>
+    <input name="quantidade" type="number" min="1" step="1" placeholder="0" required class="input-vintage" id="inp-qtd" style="text-align:center; font-size:36px !important; font-weight:800; color:var(--primary); height:80px;">
+    <p class="font-crimson" style="text-align:center; color:var(--muted); font-style:italic; margin-top:6px; font-size:16px;" id="label-unid"> </p>
   </div>
 
   <div style="margin-bottom:24px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:15px;">
-      💬 MOTIVO
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:16px;">
+      💬 MOTIVO DA BAIXA
     </label>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
       {% for motivo in motivos %}
       <label style="display:flex; align-items:center; gap:8px; background:var(--card);
-                    border:2px solid var(--border); border-radius:12px; padding:10px 12px; cursor:pointer;" class="motivo-label">
-        <input type="radio" name="motivo" value="{{ motivo }}" onchange="highlightMotivo()" style="accent-color:var(--primary); width:16px; height:16px;">
-        <span class="font-crimson" style="font-size:15px; color:var(--text);">{{ motivo }}</span>
+                    border:2px solid var(--border); border-radius:12px; padding:12px 14px; cursor:pointer;" class="motivo-label">
+        <input type="radio" name="motivo" value="{{ motivo }}" onchange="highlightMotivo()" {% if loop.first %}checked{% endif %} style="accent-color:var(--primary); width:18px; height:18px;">
+        <span class="font-crimson" style="font-size:16px; color:var(--text); font-weight:600;">{{ motivo }}</span>
       </label>
       {% endfor %}
       <label style="display:flex; align-items:center; gap:8px; background:var(--card);
-                    border:2px solid var(--border); border-radius:12px; padding:10px 12px; cursor:pointer;" class="motivo-label" id="lbl-motivo-outro">
-        <input type="radio" name="motivo" value="Outro" onchange="highlightMotivo()" style="accent-color:var(--primary); width:16px; height:16px;">
-        <span class="font-crimson" style="font-size:15px; color:var(--text);">🔹 Outro</span>
+                    border:2px solid var(--border); border-radius:12px; padding:12px 14px; cursor:pointer;" class="motivo-label" id="lbl-motivo-outro">
+        <input type="radio" name="motivo" value="Outro" onchange="highlightMotivo()" style="accent-color:var(--primary); width:18px; height:18px;">
+        <span class="font-crimson" style="font-size:16px; color:var(--text); font-weight:600;">🔹 Outro</span>
       </label>
     </div>
-    <div id="custom-motivo-box" style="display:none; margin-top:10px;">
-      <input name="motivo_custom" id="motivo_custom" placeholder="Digite o motivo..." class="input-vintage" style="font-size:17px !important;">
+    <div id="custom-motivo-box" style="display:none; margin-top:12px;">
+      <input name="motivo_custom" id="motivo_custom" placeholder="Descreva o motivo da saída..." class="input-vintage" style="font-size:17px !important;">
     </div>
   </div>
 
@@ -83,32 +88,64 @@
 <script>
   const selMat = document.getElementById('sel-mat');
   const busca  = document.getElementById('busca-material');
+  const inpQtd = document.getElementById('inp-qtd');
+
+  function isUnidadeInteira(unid) {
+    const u = (unid || '').toLowerCase().trim();
+    return u === 'unidades' || u === 'unidade' || u === 'unid' || u === 'pares' || u === 'pacotes';
+  }
 
   function atualizarInfo() {
     const opt = selMat.selectedOptions[0];
     const box = document.getElementById('info-box');
-    const inpQtd = document.getElementById('inp-qtd');
+    
     if (opt && opt.value) {
       document.getElementById('qtd-atual').textContent = opt.dataset.qtd;
       document.getElementById('unid-atual').textContent = opt.dataset.unid;
-      document.getElementById('label-unid').textContent = opt.dataset.unid;
+      document.getElementById('label-unid').textContent = 'Unidade: ' + opt.dataset.unid;
       box.style.display = 'block';
-      const unid = (opt.dataset.unid || '').toLowerCase();
-      const inteira = (unid === 'unidades' || unid === 'unidade' || unid === 'unid');
+
+      const inteira = isUnidadeInteira(opt.dataset.unid);
       if (inteira) {
         inpQtd.step = '1';
         inpQtd.min = '1';
+        inpQtd.inputMode = 'numeric';
+        // Se houver número com casas decimais, remove
+        if (inpQtd.value && inpQtd.value.includes('.')) {
+          inpQtd.value = Math.max(1, Math.round(parseFloat(inpQtd.value)));
+        }
       } else {
         inpQtd.step = '0.01';
         inpQtd.min = '0.01';
+        inpQtd.inputMode = 'decimal';
       }
-      if (inpQtd.value) inpQtd.value = '';
     } else {
       box.style.display = 'none';
+      document.getElementById('label-unid').textContent = '';
     }
   }
 
-  // Filtra as opções do <select> por nome OU código GTIN, digitado na busca.
+  // Previne caracteres decimais para unidades inteiras
+  inpQtd.addEventListener('keydown', (e) => {
+    const opt = selMat.selectedOptions[0];
+    if (opt && opt.value && isUnidadeInteira(opt.dataset.unid)) {
+      if (e.key === '.' || e.key === ',' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-') {
+        e.preventDefault();
+      }
+    }
+  });
+
+  inpQtd.addEventListener('input', () => {
+    const opt = selMat.selectedOptions[0];
+    if (opt && opt.value && isUnidadeInteira(opt.dataset.unid)) {
+      // Remove pontos ou vírgulas colados
+      if (inpQtd.value.includes('.') || inpQtd.value.includes(',')) {
+        inpQtd.value = inpQtd.value.replace(/[^0-9]/g, '');
+      }
+    }
+  });
+
+  // Filtra as opções do <select> por nome OU código GTIN
   busca.addEventListener('input', () => {
     const termo = busca.value.trim().toLowerCase();
     let primeiraVisivel = null;
@@ -118,15 +155,13 @@
       opt.hidden = !bate;
       if (bate && !primeiraVisivel) primeiraVisivel = opt;
     });
-    // Se sobrou só 1 opção compatível, seleciona ela automaticamente.
+    // Se sobrou apenas 1 opção compatível, seleciona automaticamente
     const visiveis = Array.from(selMat.options).filter(o => o.value && !o.hidden);
     if (termo && visiveis.length === 1) {
       selMat.value = visiveis[0].value;
       atualizarInfo();
     }
   });
-
-  atualizarInfo();
 
   function highlightMotivo() {
     let selectedVal = '';
@@ -146,5 +181,8 @@
       customInp.value = '';
     }
   }
+
+  atualizarInfo();
+  highlightMotivo();
 </script>
 {% endblock %}

@@ -3,9 +3,14 @@
 {% set subtitulo = total ~ " item(s)" %}
 {% block conteudo %}
 
-<form method="get" style="margin-bottom:12px;">
+<form method="get" id="form-busca-estoque" style="margin-bottom:12px;">
   <input type="hidden" name="cat" value="{{ cat_ativa }}">
-  <input name="q" value="{{ q }}" placeholder="🔍  Buscar por nome ou código GTIN..." class="input-vintage" style="font-size:17px !important;">
+  <div style="display:flex; gap:8px;">
+    <input name="q" id="inp-busca-estoque" value="{{ q }}" placeholder="🔍  Buscar por nome ou código GTIN..." class="input-vintage" style="font-size:17px !important; flex:1;">
+    <button type="button" class="btn-scan" onclick="abrirScanner('inp-busca-estoque', () => document.getElementById('form-busca-estoque').submit())">
+      📷 Escanear
+    </button>
+  </div>
 </form>
 
 <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px;">
@@ -72,12 +77,14 @@
     <div id="entrada-{{ m.id }}" style="display:none; margin-top:12px;
          background:var(--accent-lt); border:1.5px solid var(--accent);
          border-radius:12px; padding:14px;">
+      {% set u_lower = (m.unidade|lower) %}
+      {% set is_inteira = u_lower.startswith('unid') or u_lower in ['unidades', 'pares', 'pacotes', 'unidade'] %}
       <form method="post" action="{{ url_for('estoque_entrada', material_id=m.id) }}">
         <p class="font-crimson" style="font-style:italic; color:var(--primary); margin-bottom:8px; font-size:16px;">
           Quantas {{ m.unidade }} estão entrando?
         </p>
         <div style="display:flex; gap:8px;">
-          <input name="quantidade" type="number" min="0.1" step="0.1" placeholder="Quantidade" class="input-vintage" style="flex:1;">
+          <input name="quantidade" type="number" min="{{ '1' if is_inteira else '0.01' }}" step="{{ '1' if is_inteira else '0.01' }}" inputmode="{{ 'numeric' if is_inteira else 'decimal' }}" placeholder="Quantidade ({{ m.unidade }})" required class="input-vintage" style="flex:1;">
           <input name="motivo" placeholder="Motivo" class="input-vintage" style="flex:1;">
         </div>
         <button class="btn-primary" style="margin-top:10px; font-size:16px !important;">✅ Confirmar entrada</button>

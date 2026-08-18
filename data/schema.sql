@@ -1,4 +1,4 @@
-﻿PRAGMA foreign_keys = OFF;
+PRAGMA foreign_keys = OFF;
 BEGIN TRANSACTION;
 
 CREATE TABLE IF NOT EXISTS collections (
@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS produtos (
     emoji TEXT,
     preco_venda REAL DEFAULT 0,
     receita TEXT,
+    gtin TEXT,
+    estoque_pronto INTEGER DEFAULT 0,
     created_at TEXT,
     updated_at TEXT
 );
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     valor_total REAL,
     status TEXT,
     materiais_baixados INTEGER DEFAULT 0,
+    usou_estoque_pronto INTEGER DEFAULT 0,
     data_pedido TEXT,
     data_pedido_iso TEXT,
     observacoes TEXT,
@@ -90,7 +93,67 @@ CREATE TABLE IF NOT EXISTS usuarios (
     id TEXT PRIMARY KEY,
     username TEXT UNIQUE,
     password_hash TEXT,
+    role TEXT,
+    roles TEXT,
+    nome TEXT,
+    avatar TEXT,
+    created_at TEXT,
+    session_version INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS roles (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    is_system INTEGER DEFAULT 0,
+    created_at TEXT,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+    role TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    can_create INTEGER DEFAULT 0,
+    can_read INTEGER DEFAULT 0,
+    can_update INTEGER DEFAULT 0,
+    can_delete INTEGER DEFAULT 0,
+    updated_at TEXT,
+    PRIMARY KEY (role, resource)
+);
+
+CREATE TABLE IF NOT EXISTS audits (
+    id TEXT PRIMARY KEY,
+    actor_id TEXT,
+    actor_username TEXT,
+    target_user_id TEXT,
+    action TEXT,
+    details TEXT,
     created_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS relatorios_customizados (
+    id TEXT PRIMARY KEY,
+    titulo TEXT NOT NULL,
+    tipo TEXT NOT NULL,
+    tipo_grafico TEXT NOT NULL,
+    categoria_filtro TEXT,
+    status_filtro TEXT,
+    apenas_criticos INTEGER DEFAULT 0,
+    observacoes TEXT,
+    criado_por TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+
+-- Materiais Padrão do Sistema
+INSERT OR IGNORE INTO materiais (id, nome, categoria, emoji, quantidade, unidade, quantidade_minima, custo, gtin, foto, created_at, updated_at) VALUES
+('mat-tesoura-001', 'Tesoura', 'Outros', '✂️', 5, 'unidades', 1, 25.0, '7891112004818', NULL, datetime('now'), datetime('now')),
+('mat-courino-002', 'Courino', 'Courino', '🟫', 10.0, 'metros', 5, 40.0, '7890007239168', NULL, datetime('now'), datetime('now')),
+('mat-mosquetao-003', 'Mosquetão Dourado', 'Metal', '⚙️', 20, 'unidades', 10, 3.5, '7891075200296', NULL, datetime('now'), datetime('now')),
+('mat-ziper-004', 'Zíper', 'Aviamento', '🧵', 15, 'unidades', 5, 4.0, '7891446632541', NULL, datetime('now'), datetime('now')),
+('mat-linha-005', 'Linha de Costura Preta', 'Aviamento', '🧵', 6, 'rolos', 3, 8.0, '7897977100092', NULL, datetime('now'), datetime('now')),
+('mat-courino-caramelo-006', 'Courino Caramelo', 'Courino', '🟫', 8.0, 'metros', 5, 45.0, '7908723211167', NULL, datetime('now'), datetime('now')),
+('mat-fivela-007', 'Fivela Quadrada Dourada', 'Metal', '⚙️', 12, 'unidades', 5, 5.0, '7890011087373', NULL, datetime('now'), datetime('now')),
+('mat-courino-preto-008', 'Courino Preto', 'Courino', '🟫', 12.0, 'metros', 5, 45.0, '7890007239170', NULL, datetime('now'), datetime('now'));
 
 COMMIT;

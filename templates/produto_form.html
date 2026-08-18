@@ -31,8 +31,26 @@
   </div>
 
   <div style="margin-bottom:18px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">💰 PREÇO DE VENDA (R$)</label>
-    <input name="preco_venda" type="number" min="0" step="0.01" placeholder="0,00" class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
+      🔢 CÓDIGO GTIN / CÓDIGO DE BARRAS DA BOLSA <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+    </label>
+    <div style="display:flex; gap:8px;">
+      <input name="gtin" id="inp-gtin-produto" placeholder="Ex: 7899876543210" inputmode="numeric" class="input-vintage" style="font-size:17px !important; flex:1;">
+      <button type="button" class="btn-scan" onclick="abrirScanner('inp-gtin-produto')">
+        📷 Escanear
+      </button>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px;">
+    <div>
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">💰 PREÇO DE VENDA (R$)</label>
+      <input name="preco_venda" type="number" min="0" step="0.01" placeholder="0,00" class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
+    </div>
+    <div>
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">🛍️ PEÇAS PRONTAS NO ESTOQUE</label>
+      <input name="estoque_pronto" type="number" min="0" step="1" inputmode="numeric" value="0" placeholder="0" class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
+    </div>
   </div>
 
   <div class="ornament" style="margin:16px 0;">· · ·</div>
@@ -74,6 +92,36 @@ const materiaisDisponiveis = {{ materiais|tojson }};
 const container = document.getElementById('linhas-receita');
 let contador = 0;
 
+function isUnidadeInteira(u) {
+  const x = (u || '').toLowerCase().trim();
+  return x === 'unidades' || x === 'unidade' || x === 'unid' || x === 'pares' || x === 'pacotes';
+}
+
+function atualizarUnidadeLinha(sel) {
+  const mid = sel.value;
+  const mat = materiaisDisponiveis.find(m => m.id === mid);
+  const row = sel.closest('div');
+  const inpQtd = row.querySelector('input[name="material_qtd[]"]');
+  if (mat && isUnidadeInteira(mat.unidade)) {
+    inpQtd.step = '1';
+    inpQtd.min = '1';
+    inpQtd.inputMode = 'numeric';
+    inpQtd.placeholder = 'Qtd (inteiro)';
+    if (inpQtd.value && inpQtd.value.includes('.')) {
+      inpQtd.value = Math.max(1, Math.round(parseFloat(inpQtd.value)));
+    }
+  } else if (mat) {
+    inpQtd.step = '0.01';
+    inpQtd.min = '0.01';
+    inpQtd.inputMode = 'decimal';
+    inpQtd.placeholder = 'Qtd (' + mat.unidade + ')';
+  } else {
+    inpQtd.step = '0.01';
+    inpQtd.min = '0.01';
+    inpQtd.placeholder = 'Qtd';
+  }
+}
+
 function adicionarLinha() {
   contador++;
   const div = document.createElement('div');
@@ -85,11 +133,11 @@ function adicionarLinha() {
   ).join('');
 
   div.innerHTML = `
-    <select name="material_id[]" class="input-vintage" style="flex:2;">
+    <select name="material_id[]" class="input-vintage" style="flex:2;" onchange="atualizarUnidadeLinha(this)">
       <option value="">— Selecione o material —</option>
       ${opcoes}
     </select>
-    <input name="material_qtd[]" type="number" min="0" step="0.01" placeholder="Qtd" class="input-vintage" style="flex:1;">
+    <input name="material_qtd[]" type="number" min="0.01" step="0.01" placeholder="Qtd" required class="input-vintage" style="flex:1;">
     <button type="button" class="btn-ghost" style="padding:10px 12px; flex-shrink:0;" onclick="document.getElementById('linha-${contador}').remove()">✕</button>
   `;
   container.appendChild(div);

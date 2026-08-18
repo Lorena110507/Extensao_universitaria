@@ -2,43 +2,93 @@
 {% set titulo_pagina = "Registrar Sobra" %}
 {% block conteudo %}
 
-<form method="post">
+<form method="post" id="form-sobra">
 
   <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
 
   <div style="margin-bottom:18px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
-      🏷️ MATERIAL DE ORIGEM <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:16px;">
+      🏷️ MATERIAL DE ORIGEM <span style="color:var(--danger);">*</span>
     </label>
-    <select name="material_id" id="sel-material" onchange="atualizarUnidade()" class="input-vintage" style="font-family:'Crimson Text',serif; font-size:17px !important;">
-      <option value="">— Sobra avulsa / sem material vinculado —</option>
+    <select name="material_id" id="sel-material" onchange="atualizarMaterial()" required class="input-vintage" style="font-family:'Crimson Text',serif; font-size:17px !important;">
+      <option value="">— Selecione o material que gerou a sobra —</option>
       {% for m in materiais %}
-      <option value="{{ m.id }}" data-unidade="{{ m.unidade }}">{{ m.emoji }} {{ m.nome }}</option>
+      <option value="{{ m.id }}" data-nome="{{ m.nome }}" data-unidade="{{ m.unidade }}" data-qtd="{{ m.quantidade }}">
+        {{ m.emoji }} {{ m.nome }} · Saldo: {{ m.quantidade }} {{ m.unidade }}
+      </option>
       {% endfor %}
     </select>
     <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic; margin-top:4px;">
-      Vinculando um material, ao reaproveitar a sobra ela volta automaticamente para o estoque.
+      A sobra será deduzida do estoque do material de origem e, ao reaproveitar, retornará automaticamente ao saldo.
     </p>
   </div>
 
   <div style="margin-bottom:18px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
-      📝 DESCRIÇÃO <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:16px;">
+      📐 TIPO DE REGISTRO
     </label>
-    <input name="descricao" id="descricao" placeholder="Ex: Retalho de courino preto 20x30cm" class="input-vintage">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <label style="display:flex; align-items:center; gap:8px; background:var(--accent-lt);
+                    border:2px solid var(--primary); border-radius:12px; padding:12px 14px; cursor:pointer;" id="lbl-tipo-dimensoes">
+        <input type="radio" name="tipo_entrada" value="dimensoes" checked onchange="toggleTipoEntrada()" style="accent-color:var(--primary); width:18px; height:18px;">
+        <div>
+          <span style="font-weight:700; font-size:15px; color:var(--primary);">📏 Por Dimensões (cm)</span>
+          <div class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">Ex: Couro 30x30 cm</div>
+        </div>
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; background:var(--card);
+                    border:2px solid var(--border); border-radius:12px; padding:12px 14px; cursor:pointer;" id="lbl-tipo-direto">
+        <input type="radio" name="tipo_entrada" value="direto" onchange="toggleTipoEntrada()" style="accent-color:var(--primary); width:18px; height:18px;">
+        <div>
+          <span style="font-weight:700; font-size:15px; color:var(--primary);">🔢 Quantidade Direta</span>
+          <div class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">Ex: 0.5 kg / 2 unid / 1.2 m</div>
+        </div>
+      </label>
+    </div>
   </div>
 
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px;">
-    <div>
-      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">📏 QUANTIDADE</label>
-      <input name="quantidade" type="number" min="0.01" step="0.01" placeholder="Ex: 0.3" required class="input-vintage" style="text-align:center; font-size:20px !important; font-weight:700;">
+  <!-- Bloco de Dimensões Inteligentes (cm) -->
+  <div id="bloco-dimensoes" style="background:var(--accent-lt); border:1.5px solid var(--accent); border-radius:14px; padding:16px; margin-bottom:20px;">
+    <p class="font-crimson" style="font-size:15px; color:var(--primary-dk); font-style:italic; margin:0 0 12px 0;">
+      ✨ <strong>Cálculo Inteligente de Dimensões:</strong> Informe as medidas em centímetros do retalho. O sistema calcula a área e a metragem correspondente em rolo padrão (largura 1,40m).
+    </p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:4px; font-size:14px;">COMPRIMENTO (cm)</label>
+        <input type="number" id="inp-comp" name="comprimento_cm" min="1" step="0.5" placeholder="Ex: 30" class="input-vintage" style="text-align:center; font-weight:700; font-size:18px !important;" oninput="calcularDimensoes()">
+      </div>
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:4px; font-size:14px;">LARGURA (cm)</label>
+        <input type="number" id="inp-larg" name="largura_cm" min="1" step="0.5" placeholder="Ex: 30" class="input-vintage" style="text-align:center; font-weight:700; font-size:18px !important;" oninput="calcularDimensoes()">
+      </div>
     </div>
-    <div>
-      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">📐 UNIDADE</label>
-      <select name="unidade" id="sel-unidade" class="input-vintage">
-        {% for u in ["unidades","metros","rolos","kg","gramas","pares","pacotes"] %}<option>{{ u }}</option>{% endfor %}
-      </select>
+    <div style="background:#fffdf7; border:1px dashed var(--accent); border-radius:10px; padding:10px 14px; font-size:15px; color:var(--text);">
+      <div>📐 <strong>Área calculada:</strong> <span id="area-calc" style="font-weight:700; color:var(--primary);">0,00 m²</span></div>
+      <div style="margin-top:2px;">📏 <strong>Metros correspondentes (rolo 1,40m):</strong> <span id="metros-calc" style="font-weight:700; color:var(--primary);">0,000 metros</span></div>
     </div>
+  </div>
+
+  <!-- Bloco de Quantidade Direta -->
+  <div id="bloco-direto" style="display:none; margin-bottom:20px;">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">📏 QUANTIDADE</label>
+        <input name="quantidade" id="inp-quantidade" type="number" min="0.01" step="0.01" placeholder="Ex: 0.5" class="input-vintage" style="text-align:center; font-size:20px !important; font-weight:700;">
+      </div>
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">📐 UNIDADE</label>
+        <select name="unidade" id="sel-unidade" class="input-vintage" onchange="atualizarUnidadeDireta()">
+          {% for u in ["metros","unidades","rolos","kg","gramas","pares","pacotes"] %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-bottom:20px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
+      📝 DESCRIÇÃO DO RETALHO / SOBRA
+    </label>
+    <input name="descricao" id="inp-descricao" placeholder="Ex: Retalho de Courino Preto 30x30cm" class="input-vintage">
   </div>
 
   <div class="ornament" style="margin-bottom:20px;">· · ·</div>
@@ -53,59 +103,94 @@
 {% block scripts %}
 <script>
 function isUnidadeInteira(u) {
-  const x = (u || '').toLowerCase();
-  return x === 'unidades' || x === 'unidade' || x === 'unid';
+  const x = (u || '').toLowerCase().trim();
+  return x === 'unidades' || x === 'unidade' || x === 'unid' || x === 'pares' || x === 'pacotes';
 }
 
-function atualizarUnidade() {
-  const opt = document.getElementById('sel-material').selectedOptions[0];
-  const unidadeSelect = document.getElementById('sel-unidade');
-  const quantidade = document.querySelector('input[name="quantidade"]');
-  if (opt && opt.dataset.unidade) {
-    unidadeSelect.value = opt.dataset.unidade;
-    unidadeSelect.disabled = true;
-    // if unidade é inteira (unidades), a quantidade deve ser um número inteiro
-    if (isUnidadeInteira(opt.dataset.unidade)) {
-      quantidade.step = '1';
-      quantidade.min = '1';
-    } else {
-      quantidade.step = '0.01';
-      quantidade.min = '0.01';
+function atualizarUnidadeDireta() {
+  const sel = document.getElementById('sel-unidade');
+  const inpQtd = document.getElementById('inp-quantidade');
+  const inteira = isUnidadeInteira(sel.value);
+  if (inteira) {
+    inpQtd.step = '1';
+    inpQtd.min = '1';
+    inpQtd.inputMode = 'numeric';
+    if (inpQtd.value && inpQtd.value.includes('.')) {
+      inpQtd.value = Math.max(1, Math.round(parseFloat(inpQtd.value)));
     }
   } else {
-    // sem material vinculado, libera a unidade novamente
-    unidadeSelect.disabled = false;
-    verificarDescricao();
+    inpQtd.step = '0.01';
+    inpQtd.min = '0.01';
+    inpQtd.inputMode = 'decimal';
   }
 }
 
-// detect description that looks like dimensions and force unidades
-function verificarDescricao() {
+function toggleTipoEntrada() {
+  const tipo = document.querySelector('input[name="tipo_entrada"]:checked').value;
+  const blocoDim = document.getElementById('bloco-dimensoes');
+  const blocoDir = document.getElementById('bloco-direto');
+  const lblDim = document.getElementById('lbl-tipo-dimensoes');
+  const lblDir = document.getElementById('lbl-tipo-direto');
+  const inpQtd = document.getElementById('inp-quantidade');
+  const inpComp = document.getElementById('inp-comp');
+  const inpLarg = document.getElementById('inp-larg');
+
+  if (tipo === 'dimensoes') {
+    blocoDim.style.display = 'block';
+    blocoDir.style.display = 'none';
+    lblDim.style.borderColor = 'var(--primary)';
+    lblDim.style.background  = 'var(--accent-lt)';
+    lblDir.style.borderColor = 'var(--border)';
+    lblDir.style.background  = 'var(--card)';
+    inpQtd.required = false;
+    inpComp.required = true;
+    inpLarg.required = true;
+    calcularDimensoes();
+  } else {
+    blocoDim.style.display = 'none';
+    blocoDir.style.display = 'block';
+    lblDir.style.borderColor = 'var(--primary)';
+    lblDir.style.background  = 'var(--accent-lt)';
+    lblDim.style.borderColor = 'var(--border)';
+    lblDim.style.background  = 'var(--card)';
+    inpQtd.required = true;
+    inpComp.required = false;
+    inpLarg.required = false;
+    atualizarUnidadeDireta();
+  }
+}
+
+function calcularDimensoes() {
+  const comp = parseFloat(document.getElementById('inp-comp').value) || 0;
+  const larg = parseFloat(document.getElementById('inp-larg').value) || 0;
+  const areaM2 = (comp * larg) / 10000.0;
+  const equivMetros = Math.max(0.001, (areaM2 / 1.40));
+
+  document.getElementById('area-calc').textContent = areaM2 > 0 ? areaM2.toFixed(4).replace('.', ',') + ' m²' : '0,00 m²';
+  document.getElementById('metros-calc').textContent = comp > 0 && larg > 0 ? equivMetros.toFixed(3).replace('.', ',') + ' metros' : '0,000 metros';
+
   const optMat = document.getElementById('sel-material').selectedOptions[0];
-  // se há material vinculado, a unidade dele tem prioridade sobre a descrição
-  if (optMat && optMat.dataset.unidade) return;
-  const desc = document.getElementById('descricao').value.toLowerCase();
-  const unidadeSelect = document.getElementById('sel-unidade');
-  const quantidade = document.querySelector('input[name="quantidade"]');
-  const dimPattern = /\d+\s*[x×]\s*\d+|\d+\s*(cm|mm|m)\b/;
-  if (dimPattern.test(desc)) {
-    unidadeSelect.value = 'unidades';
-    unidadeSelect.disabled = true;
-    quantidade.step = '1';
-    quantidade.min = '1';
-  } else if (!optMat || !optMat.dataset.unidade) {
-    // re-enable only if material didn't lock it
-    unidadeSelect.disabled = false;
-    quantidade.step = '0.01';
-    quantidade.min = '0.01';
+  const matNome = optMat && optMat.value ? optMat.dataset.nome : 'Material';
+  const descEl = document.getElementById('inp-descricao');
+  if (comp > 0 && larg > 0) {
+    descEl.value = `Retalho de ${matNome} ${comp.toFixed(0)}x${larg.toFixed(0)} cm (${areaM2.toFixed(2).replace('.', ',')} m²)`;
   }
 }
 
-// wire events
-document.getElementById('sel-material').addEventListener('change', atualizarUnidade);
-document.getElementById('descricao').addEventListener('input', verificarDescricao);
-// run on load
-atualizarUnidade();
-verificarDescricao();
+function atualizarMaterial() {
+  const opt = document.getElementById('sel-material').selectedOptions[0];
+  const unidSelect = document.getElementById('sel-unidade');
+  if (opt && opt.dataset.unidade) {
+    unidSelect.value = opt.dataset.unidade;
+    if (isUnidadeInteira(opt.dataset.unidade)) {
+      document.querySelector('input[name="tipo_entrada"][value="direto"]').checked = true;
+      toggleTipoEntrada();
+    }
+  }
+  atualizarUnidadeDireta();
+  calcularDimensoes();
+}
+
+toggleTipoEntrada();
 </script>
 {% endblock %}

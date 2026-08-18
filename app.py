@@ -97,6 +97,25 @@ def formatar_reais(valor):
     return inteiro.replace(",", ".") + "," + decimal
 
 
+def parse_float_ptbr(valor_str, default=0.0):
+    """Converte valores monetários ou numéricos com vírgula/ponto para float."""
+    if valor_str is None:
+        return default
+    if isinstance(valor_str, (int, float)):
+        return float(valor_str)
+    s = str(valor_str).replace("R$", "").replace(" ", "").strip()
+    if not s:
+        return default
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif "," in s:
+        s = s.replace(",", ".")
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return default
+
+
 @app.template_filter("moeda")
 def filtro_moeda(valor):
     return "R$ " + formatar_reais(valor)
@@ -105,11 +124,12 @@ def filtro_moeda(valor):
 # ── Categorias consistentes e sincronizadas ───────────────────────────────────
 
 CATEGORIA_REGRA = [
-    ("Courino", ["courino", "couro", "suede", "camurca", "camurça"]),
-    ("Metal", ["metal", "mosquetao", "mosquetão", "fivela", "argola", "corrente", "ilhos", "ilhós", "gancho", "rebite", "tachinha", "alca de metal", "alça de metal"]),
-    ("Aviamento", ["ziper", "zíper", "linha", "fio", "botao", "botão", "colchete", "elastico", "elástico", "velcro", "fecho", "aviamento", "travado", "etiqueta", "laco", "laço", "renda", "passante", "gancheira"]),
-    ("Tecido", ["tecido", "algodao", "algodão", "linho", "tricoline", "voal", "crepe", "sarja", "seda", "forro", "pano", "gabardine", "oxford", "jeans", "malha"]),
-    ("Embalagem", ["embalagem", "saco", "caixa", "papel", "plastico", "plástico", "polimero", "polímero", "adesivo", "fita adesiva"]),
+    ("Courino", ["courino", "couro", "suede", "camurca", "camurça", "napa", "sintetico", "sintético"]),
+    ("Metal", ["metal", "mosquetao", "mosquetão", "fivela", "argola", "corrente", "ilhos", "ilhós", "gancho", "rebite", "tachinha", "alca de metal", "alça de metal", "fecho de metal", "fecho"]),
+    ("Aviamento", ["ziper", "zíper", "linha", "fio", "botao", "botão", "colchete", "elastico", "elástico", "velcro", "aviamento", "travado", "etiqueta", "laco", "laço", "renda", "passante", "gancheira", "fita", "viés", "vies"]),
+    ("Tecido", ["tecido", "algodao", "algodão", "linho", "tricoline", "voal", "crepe", "sarja", "seda", "forro", "pano", "gabardine", "oxford", "jeans", "malha", "feltro", "lona"]),
+    ("Embalagem", ["embalagem", "saco", "caixa", "papel", "plastico", "plástico", "polimero", "polímero", "adesivo", "fita adesiva", "tag", "sacola"]),
+    ("Outros", ["tesoura", "alicate", "regua", "régua", "ferramenta", "cola", "giz", "agulha"]),
 ]
 
 
@@ -411,6 +431,8 @@ def init_db():
             emoji TEXT,
             preco_venda REAL DEFAULT 0,
             receita TEXT,
+            gtin TEXT,
+            estoque_pronto INTEGER DEFAULT 0,
             created_at TEXT,
             updated_at TEXT
         )
@@ -431,6 +453,7 @@ def init_db():
             valor_total REAL,
             status TEXT,
             materiais_baixados INTEGER DEFAULT 0,
+            usou_estoque_pronto INTEGER DEFAULT 0,
             data_pedido TEXT,
             data_pedido_iso TEXT,
             observacoes TEXT,
@@ -504,22 +527,24 @@ def init_db():
         )
         """
     )
-    # For older DBs, ensure role, session_version, nome, avatar, and roles columns exist
-    try:
-        cur.execute("PRAGMA table_info(usuarios)")
-        cols = [r[1] for r in cur.fetchall()]
-        if 'role' not in cols:
-            cur.execute("ALTER TABLE usuarios ADD COLUMN role TEXT")
-        if 'session_version' not in cols:
-            cur.execute("ALTER TABLE usuarios ADD COLUMN session_version INTEGER DEFAULT 0")
-        if 'nome' not in cols:
-            cur.execute("ALTER TABLE usuarios ADD COLUMN nome TEXT")
-        if 'avatar' not in cols:
-            cur.execute("ALTER TABLE usuarios ADD COLUMN avatar TEXT")
-        if 'roles' not in cols:
-            cur.execute("ALTER TABLE usuarios ADD COLUMN roles TEXT")
-    except Exception:
-        pass
+    # Migrations for tables
+    for col, ctype in [('role', 'TEXT'), ('session_version', 'INTEGER DEFAULT 0'), ('nome', 'TEXT'), ('avatar', 'TEXT'), ('roles', 'TEXT')]:
+        try:
+            cur.execute(f"ALTER TABLE usuarios ADD COLUMN {col} {ctype}")
+        except Exception:
+            pass
+
+    for col, ctype in [('gtin', 'TEXT'), ('estoque_pronto', 'INTEGER DEFAULT 0')]:
+        try:
+            cur.execute(f"ALTER TABLE produtos ADD COLUMN {col} {ctype}")
+        except Exception:
+            pass
+
+    for col, ctype in [('usou_estoque_pronto', 'INTEGER DEFAULT 0')]:
+        try:
+            cur.execute(f"ALTER TABLE pedidos ADD COLUMN {col} {ctype}")
+        except Exception:
+            pass
 
     # roles table: defines roles and descriptions
     cur.execute(
@@ -604,7 +629,7 @@ def init_db():
     # Migração única: limpa resíduos de dados de teste e popula itens padrão do sistema
     try:
         cur.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)")
-        cur.execute("SELECT value FROM app_meta WHERE key='seed_padrao_aplicado'")
+        cur.execute("SELECT value FROM app_meta WHERE key='seed_padrao_v5_aplicado'")
         if not cur.fetchone():
             cur.execute("DELETE FROM pedidos")
             cur.execute("DELETE FROM sobras")
@@ -617,7 +642,23 @@ def init_db():
             cur.execute("DELETE FROM roles WHERE is_system = 0")
             cur.execute("DELETE FROM role_permissions WHERE role NOT IN (SELECT name FROM roles WHERE is_system = 1)")
             cur.execute("UPDATE usuarios SET role='Admin', roles=? WHERE username='admin'", (serializar_roles(['Admin']),))
-            cur.execute("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('seed_padrao_aplicado', '1')")
+
+            # Se a tabela de materiais ficou vazia, carrega do SEED_FILE
+            if os.path.exists(SEED_FILE):
+                try:
+                    with open(SEED_FILE, encoding="utf-8") as f:
+                        seed_data = json.load(f)
+                    now = agora().isoformat()
+                    for m in seed_data:
+                        _id = m.get("id") or str(uuid.uuid4())
+                        cur.execute(
+                            "INSERT OR IGNORE INTO materiais (id,nome,categoria,emoji,quantidade,unidade,quantidade_minima,custo,gtin,foto,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (_id, m.get("nome"), m.get("categoria"), m.get("emoji"), float(m.get("quantidade") or 0), m.get("unidade"), float(m.get("quantidade_minima") or 0), float(m.get("custo") or 0), m.get("gtin"), m.get("foto"), now, now)
+                        )
+                except Exception:
+                    pass
+
+            cur.execute("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('seed_padrao_v5_aplicado', '1')")
             conn.commit()
     except Exception:
         pass
@@ -1860,18 +1901,21 @@ def estoque():
 
     resultado = materiais
     if cat != "Todos":
-        resultado = [m for m in resultado if m["categoria"] == cat]
+        resultado = [m for m in resultado if m.get("categoria") == cat]
     if q:
         # busca por nome OU por código GTIN
         resultado = [
             m for m in resultado
-            if q in m["nome"].lower() or q in (m.get("gtin") or "").lower()
+            if q in m.get("nome", "").lower() or q in (m.get("gtin") or "").lower()
         ]
+
+    # Categorias sincronizadas e dinâmicas com os materiais cadastrados
+    categorias_disponiveis = list(dict.fromkeys(CATEGORIAS + [m.get("categoria") for m in materiais if m.get("categoria")]))
 
     return render_template(
         "estoque.html",
         materiais=resultado,
-        categorias=CATEGORIAS,
+        categorias=categorias_disponiveis,
         cat_ativa=cat,
         q=request.args.get("q", ""),
         total=len(materiais),
@@ -1884,16 +1928,27 @@ def estoque_entrada(material_id):
     materiais = carregar_materiais()
     m = encontrar(materiais, material_id)
     if m:
-        try:
-            qtd = float(request.form.get("quantidade", 0))
-        except ValueError:
-            qtd = 0
+        qtd = parse_float_ptbr(request.form.get("quantidade", 0))
         motivo = request.form.get("motivo", "").strip()
-        if qtd > 0:
-            m["quantidade"] = round(m["quantidade"] + qtd, 3)
-            salvar_materiais(materiais)
-            registrar_movimentacao("entrada", qtd, m["unidade"], motivo or "Entrada manual de estoque", m["nome"])
-            flash(f"Entrada registrada em {m['nome']}.")
+        if qtd <= 0:
+            flash("Informe uma quantidade válida e maior que zero para a entrada.")
+            return redirect(url_for("estoque"))
+
+        unidade = (m.get("unidade") or "").lower()
+        is_inteiro = unidade.startswith("unid") or unidade in ("unidades", "pares", "pacotes", "unidade")
+
+        if is_inteiro:
+            if abs(qtd - round(qtd)) > 1e-6:
+                flash(f"Para o material '{m.get('nome')}' (unidade: {m.get('unidade')}), utilize apenas números inteiros.")
+                return redirect(url_for("estoque"))
+            qtd = int(round(qtd))
+            m["quantidade"] = int(m.get("quantidade") or 0) + qtd
+        else:
+            m["quantidade"] = round(float(m.get("quantidade") or 0) + qtd, 3)
+
+        salvar_materiais(materiais)
+        registrar_movimentacao("entrada", qtd, m["unidade"], motivo or "Entrada manual de estoque", m["nome"])
+        flash(f"Entrada de {qtd} {m['unidade']} registrada em {m['nome']}.")
     return redirect(url_for("estoque"))
 
 
@@ -1964,18 +2019,9 @@ def adicionar():
         categoria = normalizar_categoria(categoria, nome)
         gtin = request.form.get("gtin", "").strip()
 
-        try:
-            quantidade = float(request.form.get("quantidade", 0))
-        except ValueError:
-            quantidade = 0
-        try:
-            quantidade_minima = float(request.form.get("quantidade_minima", 5))
-        except ValueError:
-            quantidade_minima = 5
-        try:
-            custo = float(request.form.get("custo", 0) or 0)
-        except ValueError:
-            custo = 0
+        quantidade = parse_float_ptbr(request.form.get("quantidade", 0))
+        quantidade_minima = parse_float_ptbr(request.form.get("quantidade_minima", 5))
+        custo = parse_float_ptbr(request.form.get("custo", 0))
 
         # Basic duplicate prevention: same name + gtin
         existe = next((m for m in materiais if m["nome"].strip().lower() == nome.lower() and (m.get("gtin") or "") == gtin), None)
@@ -2034,13 +2080,17 @@ def baixa():
     materiais = carregar_materiais()
 
     if request.method == "POST":
-        material_id = request.form.get("material_id")
+        material_id = request.form.get("material_id", "").strip()
+        if not material_id:
+            flash("Selecione um material válido para dar baixa.")
+            return redirect(url_for("baixa"))
+
         m = encontrar(materiais, material_id)
-        try:
-            qtd_raw = request.form.get("quantidade", 0)
-            qtd = float(qtd_raw)
-        except Exception:
-            qtd = 0
+        if not m:
+            flash("Material não encontrado no estoque. Ação cancelada.")
+            return redirect(url_for("baixa"))
+
+        qtd = parse_float_ptbr(request.form.get("quantidade", 0))
         motivo = request.form.get("motivo", "").strip()
         # Se selecionou "Outro" e digitou um motivo customizado, usar ele
         if motivo == "Outro":
@@ -2048,41 +2098,40 @@ def baixa():
             if motivo_custom:
                 motivo = motivo_custom
 
-        # validation: material must exist
-        if not m:
-            flash('Material não encontrado. Verifique e tente novamente.')
-            return redirect(url_for('baixa'))
+        unidade = (m.get("unidade") or "").lower()
+        is_inteiro = unidade.startswith("unid") or unidade in ("unidades", "pares", "pacotes", "unidade", "unid")
 
-        # if unit is 'unidades', require integer quantities
-        unidade = (m.get('unidade') or '').lower()
-        if unidade == 'unidades' or unidade == 'unidade' or unidade == 'unid':
-            # if qtd is not whole number, reject
-            if abs(qtd - int(qtd)) > 1e-9:
-                flash('Para unidades inteiras, informe um número inteiro na quantidade.')
-                return redirect(url_for('baixa'))
-            qtd = int(qtd)
+        if is_inteiro:
+            if abs(qtd - round(qtd)) > 1e-6:
+                flash(f"Para o material '{m.get('nome')}' (unidade: {m.get('unidade')}), utilize apenas números inteiros.")
+                return redirect(url_for("baixa"))
+            qtd = int(round(qtd))
 
         if qtd <= 0:
-            flash('Quantidade inválida para baixa.')
-            return redirect(url_for('baixa'))
+            flash("Informe uma quantidade válida e maior que zero para a baixa.")
+            return redirect(url_for("baixa"))
 
-        # check stock availability
-        current = float(m.get('quantidade') or 0)
+        # Checa estoque disponível
+        current = float(m.get("quantidade") or 0)
+        if current <= 0:
+            flash(f"O material '{m.get('nome')}' está com estoque esgotado.")
+            return redirect(url_for("baixa"))
+
         if qtd > current:
-            flash(f'Não há quantidade suficiente em estoque para {m.get("nome")}. Estoque atual: {current}.')
-            return redirect(url_for('baixa'))
+            flash(f"Quantidade insuficiente em estoque para {m.get('nome')}. Saldo atual: {current} {m.get('unidade')}.")
+            return redirect(url_for("baixa"))
 
-        # proceed with deduction
-        if unidade == 'unidades' or unidade == 'unidade' or unidade == 'unid':
+        # Executa dedução
+        if is_inteiro:
             novo_q = max(0, int(current) - int(qtd))
         else:
-            novo_q = round(max(0, current - float(qtd)), 3)
+            novo_q = round(max(0.0, current - float(qtd)), 3)
 
-        m['quantidade'] = novo_q
+        m["quantidade"] = novo_q
         salvar_materiais(materiais)
-        registrar_movimentacao('baixa', qtd, m.get('unidade'), motivo, m.get('nome'))
-        flash(f'Baixa registrada em {m.get("nome")}.')
-        return redirect(url_for('baixa'))
+        registrar_movimentacao("baixa", qtd, m.get("unidade"), motivo, m.get("nome"))
+        flash(f"Baixa de {qtd} {m.get('unidade')} registrada em {m.get('nome')}.")
+        return redirect(url_for("baixa"))
 
     mid_preselecionado = request.args.get("mid", "")
     return render_template(
@@ -2156,6 +2205,8 @@ def carregar_produtos():
                 "emoji": r["emoji"],
                 "preco_venda": r["preco_venda"],
                 "receita": receita,
+                "gtin": r["gtin"] if "gtin" in r.keys() else "",
+                "estoque_pronto": int(r["estoque_pronto"] or 0) if "estoque_pronto" in r.keys() else 0,
             })
         return res
     return carregar_json("produtos.json")
@@ -2173,8 +2224,8 @@ def salvar_produtos(produtos):
             for p in produtos:
                 _id = p.get("id") or str(uuid.uuid4())
                 cur.execute(
-                    "INSERT INTO produtos (id,nome,emoji,preco_venda,receita,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                    (_id, p.get("nome"), p.get("emoji"), float(p.get("preco_venda") or 0), json.dumps(p.get("receita") or [] , ensure_ascii=False), now, now),
+                    "INSERT INTO produtos (id,nome,emoji,preco_venda,receita,gtin,estoque_pronto,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (_id, p.get("nome"), p.get("emoji"), float(p.get("preco_venda") or 0), json.dumps(p.get("receita") or [], ensure_ascii=False), p.get("gtin") or "", int(p.get("estoque_pronto") or 0), now, now),
                 )
             conn.commit()
         except Exception:
@@ -2208,6 +2259,7 @@ def carregar_pedidos():
                 "valor_total": r["valor_total"],
                 "status": r["status"],
                 "materiais_baixados": bool(r["materiais_baixados"]),
+                "usou_estoque_pronto": bool(r["usou_estoque_pronto"]) if "usou_estoque_pronto" in r.keys() else False,
                 "data_pedido": r["data_pedido"],
                 "data_pedido_iso": r["data_pedido_iso"],
                 "observacoes": r["observacoes"],
@@ -2411,7 +2463,7 @@ def gerar_dados_relatorio(relatorio):
 
         kpis = [
             {"titulo": "Itens Filtrados", "valor": f"{total_itens}", "sub": "Materiais selecionados", "cor": "var(--primary)"},
-            {"titulo": "Valor em Estoque", "valor": f"R\$ {formatar_reais(valor_total)}", "sub": "Total imobilizado", "cor": "var(--accent)"},
+            {"titulo": "Valor em Estoque", "valor": f"R$ {formatar_reais(valor_total)}", "sub": "Total imobilizado", "cor": "var(--accent)"},
             {"titulo": "Nível Crítico", "valor": f"{criticos_count}", "sub": "Itens abaixo do mínimo", "cor": "var(--danger)" if criticos_count > 0 else "var(--success)"},
         ]
 
@@ -2429,8 +2481,8 @@ def gerar_dados_relatorio(relatorio):
                 m.get("categoria", ""),
                 f"{m.get('quantidade',0)} {m.get('unidade','')}",
                 f"{m.get('quantidade_minima',0)} {m.get('unidade','')}",
-                f"R\$ {formatar_reais(float(m.get('custo',0)))}",
-                f"R\$ {formatar_reais(val_t)}",
+                f"R$ {formatar_reais(float(m.get('custo',0)))}",
+                f"R$ {formatar_reais(val_t)}",
                 "⚠️ Crítico" if is_crit else "✅ Normal"
             ])
             labels.append(m.get("nome", "")[:18])
@@ -2477,13 +2529,13 @@ def gerar_dados_relatorio(relatorio):
         lucro = round(rec_entregue - total_desp, 2)
 
         kpis = [
-            {"titulo": "Receita Recebida", "valor": f"R\$ {formatar_reais(rec_entregue)}", "sub": "Pedidos entregues", "cor": "var(--success)"},
-            {"titulo": "Despesas Filtradas", "valor": f"R\$ {formatar_reais(total_desp)}", "sub": f"{len(despesas)} lançamentos", "cor": "var(--danger)"},
-            {"titulo": "Lucro Realizado", "valor": f"R\$ {formatar_reais(lucro)}", "sub": "Receita − Despesas", "cor": "var(--success)" if lucro >= 0 else "var(--danger)"},
+            {"titulo": "Receita Recebida", "valor": f"R$ {formatar_reais(rec_entregue)}", "sub": "Pedidos entregues", "cor": "var(--success)"},
+            {"titulo": "Despesas Filtradas", "valor": f"R$ {formatar_reais(total_desp)}", "sub": f"{len(despesas)} lançamentos", "cor": "var(--danger)"},
+            {"titulo": "Lucro Realizado", "valor": f"R$ {formatar_reais(lucro)}", "sub": "Receita − Despesas", "cor": "var(--success)" if lucro >= 0 else "var(--danger)"},
         ]
 
         tabela["colunas"] = ["Data", "Descrição", "Categoria", "Valor (R$)"]
-        tabela["linhas"] = [[d.get("data",""), d.get("descricao",""), d.get("categoria","Outros"), f"R\$ {formatar_reais(float(d.get('valor',0)))}"] for d in despesas]
+        tabela["linhas"] = [[d.get("data",""), d.get("descricao",""), d.get("categoria","Outros"), f"R$ {formatar_reais(float(d.get('valor',0)))}"] for d in despesas]
 
         # Agrupamento de despesas por categoria
         desp_por_cat = {}
@@ -2521,13 +2573,13 @@ def gerar_dados_relatorio(relatorio):
 
         kpis = [
             {"titulo": "Total de Pedidos", "valor": f"{total_peds}", "sub": "Registros filtrados", "cor": "var(--primary)"},
-            {"titulo": "Faturamento", "valor": f"R\$ {formatar_reais(faturamento_tot)}", "sub": "Volume total", "cor": "var(--accent)"},
+            {"titulo": "Faturamento", "valor": f"R$ {formatar_reais(faturamento_tot)}", "sub": "Volume total", "cor": "var(--accent)"},
             {"titulo": "Entregues", "valor": f"{entregues}", "sub": f"{round((entregues/total_peds*100) if total_peds>0 else 0)}% do total", "cor": "var(--success)"},
         ]
 
         tabela["colunas"] = ["Cliente", "Produto", "Qtd", "Valor Total", "Status", "Data Pedido"]
         tabela["linhas"] = [
-            [p.get("cliente",""), p.get("produto_nome",""), p.get("quantidade",1), f"R\$ {formatar_reais(float(p.get('valor_total',0)))}", p.get("status","Pendente"), p.get("data_pedido","")]
+            [p.get("cliente",""), p.get("produto_nome",""), p.get("quantidade",1), f"R$ {formatar_reais(float(p.get('valor_total',0)))}", p.get("status","Pendente"), p.get("data_pedido","")]
             for p in pedidos
         ]
 
@@ -2617,18 +2669,18 @@ def gerar_dados_relatorio(relatorio):
         lucro = round(rec_ent - tot_desp, 2)
 
         kpis = [
-            {"titulo": "Valor em Estoque", "valor": f"R\$ {formatar_reais(val_est)}", "sub": f"{len(materiais)} insumos", "cor": "var(--primary)"},
-            {"titulo": "Receita Recebida", "valor": f"R\$ {formatar_reais(rec_ent)}", "sub": "Pedidos entregues", "cor": "var(--success)"},
-            {"titulo": "Lucro Operacional", "valor": f"R\$ {formatar_reais(lucro)}", "sub": "Receita − Despesas", "cor": "var(--success)" if lucro >= 0 else "var(--danger)"},
+            {"titulo": "Valor em Estoque", "valor": f"R$ {formatar_reais(val_est)}", "sub": f"{len(materiais)} insumos", "cor": "var(--primary)"},
+            {"titulo": "Receita Recebida", "valor": f"R$ {formatar_reais(rec_ent)}", "sub": "Pedidos entregues", "cor": "var(--success)"},
+            {"titulo": "Lucro Operacional", "valor": f"R$ {formatar_reais(lucro)}", "sub": "Receita − Despesas", "cor": "var(--success)" if lucro >= 0 else "var(--danger)"},
         ]
 
         tabela["colunas"] = ["Métrica Consolidada", "Valor"]
         tabela["linhas"] = [
-            ["Valor Total em Estoque", f"R\$ {formatar_reais(val_est)}"],
-            ["Receita Recebida", f"R\$ {formatar_reais(rec_ent)}"],
-            ["Receita Prevista (Em andamento)", f"R\$ {formatar_reais(rec_prev)}"],
-            ["Despesas Operacionais", f"R\$ {formatar_reais(tot_desp)}"],
-            ["Lucro Líquido", f"R\$ {formatar_reais(lucro)}"],
+            ["Valor Total em Estoque", f"R$ {formatar_reais(val_est)}"],
+            ["Receita Recebida", f"R$ {formatar_reais(rec_ent)}"],
+            ["Receita Prevista (Em andamento)", f"R$ {formatar_reais(rec_prev)}"],
+            ["Despesas Operacionais", f"R$ {formatar_reais(tot_desp)}"],
+            ["Lucro Líquido", f"R$ {formatar_reais(lucro)}"],
         ]
 
         chart_data["labels"] = ["Estoque", "Receita Entregue", "Receita Prevista", "Despesas", "Lucro"]
@@ -2690,10 +2742,7 @@ def produto_novo():
     if request.method == "POST":
         nome = request.form.get("nome", "").strip()
         emoji = request.form.get("emoji", "👜").strip() or "👜"
-        try:
-            preco_venda = float(request.form.get("preco_venda", 0) or 0)
-        except ValueError:
-            preco_venda = 0
+        preco_venda = parse_float_ptbr(request.form.get("preco_venda", 0))
 
         mat_ids = request.form.getlist("material_id[]")
         qtds = request.form.getlist("material_qtd[]")
@@ -2701,10 +2750,7 @@ def produto_novo():
         for mid, q in zip(mat_ids, qtds):
             if not mid:
                 continue
-            try:
-                qf = float(q)
-            except ValueError:
-                continue
+            qf = parse_float_ptbr(q)
             if qf <= 0:
                 continue
             receita.append({"material_id": mid, "quantidade": qf})
@@ -2724,18 +2770,59 @@ def produto_novo():
             flash('Já existe um produto com este nome.')
             return redirect(url_for('produto_novo'))
 
+        gtin = request.form.get("gtin", "").strip()
+        estoque_pronto = int(parse_float_ptbr(request.form.get("estoque_pronto", 0)))
+
         produtos_lista.append({
             "id": str(uuid.uuid4()),
             "nome": nome,
             "emoji": emoji,
             "preco_venda": preco_venda,
             "receita": receita,
+            "gtin": gtin,
+            "estoque_pronto": max(0, estoque_pronto),
         })
         salvar_produtos(produtos_lista)
         flash(f"{nome} cadastrado em Produtos & Receitas.")
         return redirect(url_for("produtos"))
 
     return render_template("produto_form.html", materiais=materiais, emojis=EMOJIS_PRODUTO)
+
+
+@app.route("/produtos/<produto_id>/ajuste_estoque", methods=["POST"])
+@requires_permission('produtos', 'update')
+def produto_ajuste_estoque(produto_id):
+    produtos_lista = carregar_produtos()
+    p = next((prod for prod in produtos_lista if prod["id"] == produto_id), None)
+    if not p:
+        flash("Produto não encontrado.")
+        return redirect(url_for("produtos"))
+
+    acao = request.form.get("acao", "adicionar").strip()
+    qtd = int(parse_float_ptbr(request.form.get("quantidade", 1)))
+    if qtd <= 0:
+        qtd = 1
+
+    atual = int(p.get("estoque_pronto") or 0)
+    now = agora()
+    now_str = now.strftime("%d/%m/%Y %H:%M")
+    usuario_id = session.get("user_id") if session else None
+
+    if acao == "adicionar":
+        novo = atual + qtd
+        motivo = request.form.get("motivo", "").strip() or "Entrada manual no estoque de peças prontas"
+        p["estoque_pronto"] = novo
+        salvar_produtos(produtos_lista)
+        registrar_movimentacao("estoque_pronto", qtd, "unidades", motivo, p["nome"])
+        flash(f"+{qtd} peça(s) de {p['nome']} adicionada(s) ao estoque de pronta-entrega (Total: {novo}).")
+    elif acao == "remover":
+        novo = max(0, atual - qtd)
+        p["estoque_pronto"] = novo
+        salvar_produtos(produtos_lista)
+        registrar_movimentacao("estoque_pronto", qtd, "unidades", "Saída manual do estoque de peças prontas", p["nome"])
+        flash(f"-{qtd} peça(s) de {p['nome']} retirada(s) do estoque de pronta-entrega (Total: {novo}).")
+
+    return redirect(url_for("produtos"))
 
 
 @app.route("/produtos/<produto_id>/excluir", methods=["POST"])
@@ -2804,6 +2891,9 @@ def pedido_novo():
             flash("Preencha cliente, produto e uma quantidade válida.")
             return redirect(url_for("pedido_novo"))
 
+        estoque_pronto_atual = int(produto.get("estoque_pronto") or 0)
+        usar_pronta = estoque_pronto_atual >= quantidade
+
         preco_unit = produto.get("preco_venda", 0)
         dt_pedido = agora()
         novo = {
@@ -2815,8 +2905,9 @@ def pedido_novo():
             "quantidade": quantidade,
             "preco_unitario": preco_unit,
             "valor_total": round(preco_unit * quantidade, 2),
-            "status": "Pendente",
-            "materiais_baixados": False,
+            "status": "Concluído" if usar_pronta else "Pendente",
+            "materiais_baixados": 1 if usar_pronta else 0,
+            "usou_estoque_pronto": 1 if usar_pronta else 0,
             "data_pedido": dt_pedido.strftime("%d/%m/%Y"),
             "data_pedido_iso": dt_pedido.strftime("%Y-%m-%d %H:%M:%S"),
             "observacoes": observacoes,
@@ -2825,19 +2916,42 @@ def pedido_novo():
             init_db()
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
+            if usar_pronta:
+                cur.execute("UPDATE produtos SET estoque_pronto=?, updated_at=? WHERE id=?", (estoque_pronto_atual - quantidade, dt_pedido.isoformat(), produto_id))
+                cur.execute(
+                    "INSERT INTO movimentacoes (id, tipo, material_nome, quantidade, unidade, motivo, data, usuario, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(uuid.uuid4()),
+                        "estoque_pronto",
+                        produto["nome"],
+                        quantidade,
+                        "unidades",
+                        f"Atendimento de pedido de {cliente} usando peça pronta em estoque",
+                        dt_pedido.strftime("%d/%m/%Y %H:%M"),
+                        session.get("user_id"),
+                        dt_pedido.isoformat()
+                    )
+                )
             cur.execute(
-                "INSERT INTO pedidos (id,cliente,produto_id,produto_nome,produto_emoji,quantidade,preco_unitario,valor_total,status,materiais_baixados,data_pedido,data_pedido_iso,observacoes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO pedidos (id,cliente,produto_id,produto_nome,produto_emoji,quantidade,preco_unitario,valor_total,status,materiais_baixados,usou_estoque_pronto,data_pedido,data_pedido_iso,observacoes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    novo["id"], novo["cliente"], novo["produto_id"], novo["produto_nome"], novo["produto_emoji"], novo["quantidade"], novo["preco_unitario"], novo["valor_total"], novo["status"], 0, novo["data_pedido"], novo["data_pedido_iso"], novo["observacoes"], dt_pedido.isoformat(), dt_pedido.isoformat()
+                    novo["id"], novo["cliente"], novo["produto_id"], novo["produto_nome"], novo["produto_emoji"], novo["quantidade"], novo["preco_unitario"], novo["valor_total"], novo["status"], novo["materiais_baixados"], novo["usou_estoque_pronto"], novo["data_pedido"], novo["data_pedido_iso"], novo["observacoes"], dt_pedido.isoformat(), dt_pedido.isoformat()
                 )
             )
             conn.commit()
             conn.close()
         else:
+            if usar_pronta:
+                produto["estoque_pronto"] = estoque_pronto_atual - quantidade
+                salvar_produtos(produtos_lista)
             pedidos_lista = carregar_json("pedidos.json")
             pedidos_lista.append(novo)
             salvar_json("pedidos.json", pedidos_lista)
-        flash(f"Pedido de {cliente} registrado.")
+
+        if usar_pronta:
+            flash(f"Pedido de {cliente} registrado e atendido imediatamente com {quantidade} peça(s) pronta(s) do estoque!")
+        else:
+            flash(f"Pedido de {cliente} registrado.")
         return redirect(url_for("pedidos"))
 
     return render_template("pedido_form.html", produtos=produtos_lista)
@@ -2868,6 +2982,32 @@ def pedido_status(pedido_id):
             if not p:
                 conn.rollback()
                 flash("Pedido não encontrado.")
+                return redirect(url_for("pedidos"))
+
+            # Se o pedido for cancelado e já houve materiais baixados ou peça pronta usada, armazena a bolsa no estoque de pronta-entrega
+            if novo_status == "Cancelado" and bool(p["materiais_baixados"]):
+                cur.execute("SELECT estoque_pronto FROM produtos WHERE id=?", (p["produto_id"],))
+                row_prod = cur.fetchone()
+                est_atual = int(row_prod[0] or 0) if row_prod else 0
+                qtd_ped = int(p["quantidade"] or 1)
+                cur.execute("UPDATE produtos SET estoque_pronto=?, updated_at=? WHERE id=?", (est_atual + qtd_ped, now_iso, p["produto_id"]))
+                cur.execute(
+                    "INSERT INTO movimentacoes (id, tipo, material_nome, quantidade, unidade, motivo, data, usuario, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(uuid.uuid4()),
+                        "estoque_pronto",
+                        p["produto_nome"],
+                        qtd_ped,
+                        "unidades",
+                        f"Bolsa armazenada no estoque de pronta-entrega após cancelamento do pedido de {p['cliente']}",
+                        now_str,
+                        usuario_id,
+                        now_iso
+                    )
+                )
+                cur.execute("UPDATE pedidos SET status=?, updated_at=? WHERE id=?", (novo_status, now_iso, pedido_id))
+                conn.commit()
+                flash(f'Pedido de {p["cliente"]} cancelado. {qtd_ped}x {p["produto_nome"]} foi guardada no estoque de peças prontas para outro cliente.')
                 return redirect(url_for("pedidos"))
 
             # Se for mover para produção, concluído ou entregue e ainda não deu baixa automática dos materiais da receita
@@ -3041,31 +3181,57 @@ def sobra_novo():
     materiais = carregar_materiais()
 
     if request.method == "POST":
-        material_id = request.form.get("material_id", "")
+        material_id = request.form.get("material_id", "").strip()
         descricao = request.form.get("descricao", "").strip()
-        try:
-            quantidade = float(request.form.get("quantidade", 0) or 0)
-        except ValueError:
-            quantidade = 0
-        unidade = request.form.get("unidade", "unidades")
+        tipo_entrada = request.form.get("tipo_entrada", "direto").strip()
 
-        if not descricao or quantidade <= 0:
-            flash("Informe descrição e quantidade válida para a sobra.")
+        m = encontrar(materiais, material_id) if material_id else None
+
+        if tipo_entrada == "dimensoes":
+            comp = parse_float_ptbr(request.form.get("comprimento_cm", 0))
+            larg = parse_float_ptbr(request.form.get("largura_cm", 0))
+            if comp <= 0 or larg <= 0:
+                flash("Informe comprimento e largura válidos em centímetros (maiores que zero).")
+                return redirect(url_for("sobra_novo"))
+
+            area_m2 = round((comp * larg) / 10000.0, 4)
+            # Para tecidos/courino em rolo padrão (1,40m largura), calcula fração correspondente
+            equiv_metros = max(0.001, round(area_m2 / 1.40, 3))
+            quantidade = equiv_metros
+            unidade = "metros"
+
+            if not descricao:
+                m_nome = m["nome"] if m else "Material"
+                descricao = f"Retalho de {m_nome} {comp:.0f}x{larg:.0f} cm ({area_m2:.2f} m²)"
+        else:
+            quantidade = parse_float_ptbr(request.form.get("quantidade", 0))
+            unidade = request.form.get("unidade", "unidades")
+
+        if not descricao:
+            descricao = (m["nome"] + " (Sobra)") if m else "Sobra sem descrição"
+
+        if quantidade <= 0:
+            flash("Informe uma quantidade válida para a sobra.")
             return redirect(url_for("sobra_novo"))
 
-        # Regra: se informou um material, ele precisa existir no estoque e ter
-        # saldo suficiente. Caso contrário a ação NÃO é executada.
+        # Regra: se informou material_id, ele OBRIGATORIAMENTE precisa existir no estoque
         if material_id:
-            m = encontrar(materiais, material_id)
             if not m:
                 flash("Não foi possível registrar a sobra: o material selecionado não existe no estoque.")
                 return redirect(url_for("sobra_novo"))
+
+            unidade_mat = (m.get("unidade") or "unidades").lower()
+            is_inteiro = unidade_mat.startswith("unid") or unidade_mat in ("unidades", "pares", "pacotes")
+            if is_inteiro:
+                if abs(quantidade - round(quantidade)) > 1e-6:
+                    flash(f"Para o material '{m.get('nome')}' (unidade: {m.get('unidade')}), utilize apenas números inteiros.")
+                    return redirect(url_for("sobra_novo"))
+                quantidade = int(round(quantidade))
+                unidade = m.get("unidade", "unidades")
+
             saldo = float(m.get("quantidade") or 0)
             if quantidade > saldo:
-                flash(f"Não foi possível registrar a sobra: estoque insuficiente para {m.get('nome')}. Saldo atual: {saldo} {m.get('unidade')}.")
-                return redirect(url_for("sobra_novo"))
-            if unidade != (m.get("unidade") or "unidades"):
-                flash("A unidade da sobra deve ser igual à unidade do material no estoque.")
+                flash(f"Não foi possível registrar a sobra: estoque insuficiente para '{m.get('nome')}'. Saldo atual: {saldo} {m.get('unidade')}.")
                 return redirect(url_for("sobra_novo"))
 
         now = agora()
@@ -3083,14 +3249,18 @@ def sobra_novo():
                     "INSERT INTO sobras (id,material_id,descricao,quantidade,unidade,data,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
                     (sobra_id, material_id or None, descricao, quantidade, unidade, now.strftime("%d/%m/%Y"), "Disponível", now_iso, now_iso)
                 )
-                if material_id:
+                if material_id and m:
+                    saldo_mat = float(m.get("quantidade") or 0)
+                    unidade_mat = (m.get("unidade") or "").lower()
+                    is_inteiro = unidade_mat.startswith("unid") or unidade_mat in ("unidades", "pares", "pacotes")
+                    nova_qtd = max(0, int(saldo_mat) - int(quantidade)) if is_inteiro else round(max(0.0, saldo_mat - float(quantidade)), 3)
                     cur.execute(
                         "UPDATE materiais SET quantidade=?, updated_at=? WHERE id=?",
-                        (round(float(m["quantidade"]) - quantidade, 3), now_iso, material_id)
+                        (nova_qtd, now_iso, material_id)
                     )
                     cur.execute(
                         "INSERT INTO movimentacoes (id, tipo, material_nome, quantidade, unidade, motivo, data, usuario, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (str(uuid.uuid4()), "sobra", m["nome"], quantidade, unidade, "Sobra registrada (retirada do estoque)", now_str, session.get("user_id"), now_iso)
+                        (str(uuid.uuid4()), "sobra", m["nome"], quantidade, unidade, f"Sobra registrada: {descricao}", now_str, session.get("user_id"), now_iso)
                     )
                 conn.commit()
             except Exception as e:
@@ -3118,9 +3288,14 @@ def sobra_novo():
             "data": now.strftime("%d/%m/%Y"),
             "status": "Disponível",
         })
-        if material_id:
-            m["quantidade"] = round(float(m.get("quantidade") or 0) - quantidade, 3)
+        if material_id and m:
+            saldo_mat = float(m.get("quantidade") or 0)
+            unidade_mat = (m.get("unidade") or "").lower()
+            is_inteiro = unidade_mat.startswith("unid") or unidade_mat in ("unidades", "pares", "pacotes")
+            nova_qtd = max(0, int(saldo_mat) - int(quantidade)) if is_inteiro else round(max(0.0, saldo_mat - float(quantidade)), 3)
+            m["quantidade"] = nova_qtd
             salvar_materiais(materiais)
+            registrar_movimentacao("sobra", quantidade, unidade, f"Sobra registrada: {descricao}", m.get("nome"))
         salvar_json("sobras.json", sobras_lista)
         flash(f'Sobra "{descricao}" registrada.')
         return redirect(url_for("sobras"))
@@ -3159,10 +3334,15 @@ def sobra_reaproveitar(sobra_id):
                 mat = cur.fetchone()
                 if not mat:
                     conn.rollback()
-                    flash('Não foi possível reaproveitar: material vinculado não existe no estoque.')
+                    flash('Não foi possível reaproveitar: o material vinculado não existe no estoque.')
                     return redirect(url_for('sobras'))
                 try:
-                    nova = round(float(mat["quantidade"]) + float(s["quantidade"]), 3)
+                    unidade_mat = (mat["unidade"] or "").lower()
+                    is_inteiro = unidade_mat.startswith("unid") or unidade_mat in ("unidades", "pares", "pacotes")
+                    if is_inteiro:
+                        nova = int(mat["quantidade"] or 0) + int(round(float(s["quantidade"] or 0)))
+                    else:
+                        nova = round(float(mat["quantidade"] or 0) + float(s["quantidade"] or 0), 3)
                 except Exception:
                     conn.rollback()
                     flash('Quantidade inválida na sobra ou no material.')
@@ -3176,7 +3356,7 @@ def sobra_reaproveitar(sobra_id):
                         mat["nome"],
                         float(s["quantidade"] or 0),
                         s["unidade"],
-                        "Sobra reaproveitada de volta ao estoque",
+                        f"Sobra reaproveitada de volta ao estoque (+{s['quantidade']} {s['unidade']})",
                         now_str,
                         usuario_id,
                         now_iso
@@ -3199,22 +3379,31 @@ def sobra_reaproveitar(sobra_id):
                 pass
         return redirect(url_for('sobras'))
 
-    
-
     sobras_lista = carregar_json("sobras.json")
     sobra = next((s for s in sobras_lista if s["id"] == sobra_id), None)
-    if sobra and sobra["status"] == "Disponível":
-        if sobra.get("material_id"):
-            materiais = carregar_materiais()
-            m = encontrar(materiais, sobra["material_id"])
-            if m:
-                m["quantidade"] = round(m["quantidade"] + sobra["quantidade"], 3)
-                salvar_materiais(materiais)
-                registrar_movimentacao("reaproveitamento", sobra["quantidade"], sobra["unidade"],
-                                        "Sobra reaproveitada de volta ao estoque", m["nome"])
-        sobra["status"] = "Reaproveitado"
-        salvar_json("sobras.json", sobras_lista)
-        flash(f"{sobra['descricao']} reaproveitada com sucesso.")
+    if not sobra or sobra["status"] != "Disponível":
+        flash("Sobra não disponível para reaproveitamento.")
+        return redirect(url_for("sobras"))
+
+    if sobra.get("material_id"):
+        materiais = carregar_materiais()
+        m = encontrar(materiais, sobra["material_id"])
+        if not m:
+            flash("Não foi possível reaproveitar: o material vinculado não existe no estoque.")
+            return redirect(url_for("sobras"))
+        unidade_mat = (m.get("unidade") or "").lower()
+        is_inteiro = unidade_mat.startswith("unid") or unidade_mat in ("unidades", "pares", "pacotes")
+        if is_inteiro:
+            m["quantidade"] = int(m.get("quantidade") or 0) + int(round(float(sobra["quantidade"] or 0)))
+        else:
+            m["quantidade"] = round(float(m.get("quantidade") or 0) + float(sobra["quantidade"] or 0), 3)
+        salvar_materiais(materiais)
+        registrar_movimentacao("reaproveitamento", sobra["quantidade"], sobra["unidade"],
+                                f"Sobra reaproveitada de volta ao estoque (+{sobra['quantidade']} {sobra['unidade']})", m["nome"])
+
+    sobra["status"] = "Reaproveitado"
+    salvar_json("sobras.json", sobras_lista)
+    flash(f"{sobra['descricao']} reaproveitada com sucesso.")
     return redirect(url_for("sobras"))
 
 
@@ -3330,10 +3519,7 @@ def financeiro():
 @requires_permission('financeiro', 'create')
 def financeiro_despesa():
     descricao = request.form.get("descricao", "").strip()
-    try:
-        valor = float(request.form.get("valor", 0) or 0)
-    except ValueError:
-        valor = 0
+    valor = parse_float_ptbr(request.form.get("valor", 0))
     categoria = request.form.get("categoria", "Outros")
 
     if not descricao or valor <= 0:
@@ -3762,13 +3948,13 @@ def exportar_financeiro_pdf():
     lucro_color = '#2E7D32' if lucro >= 0 else '#C62828'
     kpi_data = [
         [
-            Paragraph(f"<b>Valor em Estoque</b><br/><font size=12 color='#7C3D12'><b>R\$ {formatar_reais(valor_estoque)}</b></font><br/><font size=7 color='#7A6B63'>Total em insumos</font>", cell_style),
-            Paragraph(f"<b>Receita Recebida</b><br/><font size=12 color='#2E7D32'><b>R\$ {formatar_reais(receita_entregue)}</b></font><br/><font size=7 color='#7A6B63'>Pedidos entregues</font>", cell_style),
-            Paragraph(f"<b>Receita Prevista</b><br/><font size=12 color='#C88242'><b>R\$ {formatar_reais(receita_prevista)}</b></font><br/><font size=7 color='#7A6B63'>Pedidos em andamento</font>", cell_style),
+            Paragraph(f"<b>Valor em Estoque</b><br/><font size=12 color='#7C3D12'><b>R$ {formatar_reais(valor_estoque)}</b></font><br/><font size=7 color='#7A6B63'>Total em insumos</font>", cell_style),
+            Paragraph(f"<b>Receita Recebida</b><br/><font size=12 color='#2E7D32'><b>R$ {formatar_reais(receita_entregue)}</b></font><br/><font size=7 color='#7A6B63'>Pedidos entregues</font>", cell_style),
+            Paragraph(f"<b>Receita Prevista</b><br/><font size=12 color='#C88242'><b>R$ {formatar_reais(receita_prevista)}</b></font><br/><font size=7 color='#7A6B63'>Pedidos em andamento</font>", cell_style),
         ],
         [
-            Paragraph(f"<b>Despesas Totais</b><br/><font size=12 color='#C62828'><b>R\$ {formatar_reais(total_despesas)}</b></font><br/><font size=7 color='#7A6B63'>Custos operacionais</font>", cell_style),
-            Paragraph(f"<b>Lucro Realizado</b><br/><font size=12 color='{lucro_color}'><b>R\$ {formatar_reais(lucro)}</b></font><br/><font size=7 color='#7A6B63'>Receita − Despesas</font>", cell_style),
+            Paragraph(f"<b>Despesas Totais</b><br/><font size=12 color='#C62828'><b>R$ {formatar_reais(total_despesas)}</b></font><br/><font size=7 color='#7A6B63'>Custos operacionais</font>", cell_style),
+            Paragraph(f"<b>Lucro Realizado</b><br/><font size=12 color='{lucro_color}'><b>R$ {formatar_reais(lucro)}</b></font><br/><font size=7 color='#7A6B63'>Receita − Despesas</font>", cell_style),
             Paragraph(f"<b>Total de Materiais</b><br/><font size=12 color='#5C2D0E'><b>{len(materiais)} itens</b></font><br/><font size=7 color='#7A6B63'>Cadastrados no estoque</font>", cell_style),
         ]
     ]
@@ -3800,7 +3986,7 @@ def exportar_financeiro_pdf():
                 Paragraph(str(d.get("data", "")), cell_style),
                 Paragraph(str(d.get("descricao", "")), cell_style),
                 Paragraph(str(d.get("categoria", "Outros")), cell_style),
-                Paragraph(f"R\$ {formatar_reais(float(d.get('valor', 0)))}", cell_right),
+                Paragraph(f"R$ {formatar_reais(float(d.get('valor', 0)))}", cell_right),
             ])
     else:
         desp_table_data.append([Paragraph("Nenhuma despesa registrada.", cell_style), "", "", ""])
@@ -3834,7 +4020,7 @@ def exportar_financeiro_pdf():
                 Paragraph(str(p.get("produto_nome", "")), cell_style),
                 Paragraph(str(p.get("quantidade", 1)), cell_style),
                 Paragraph(st, cell_style),
-                Paragraph(f"R\$ {formatar_reais(float(p.get('valor_total', 0)))}", cell_right),
+                Paragraph(f"R$ {formatar_reais(float(p.get('valor_total', 0)))}", cell_right),
             ])
     else:
         ped_table_data.append([Paragraph("Nenhum pedido registrado.", cell_style), "", "", "", ""])
@@ -3871,7 +4057,7 @@ def exportar_financeiro_pdf():
                 Paragraph(str(m.get('categoria','')), cell_style),
                 Paragraph(f"<font color='#C62828'><b>{m.get('quantidade',0)} {m.get('unidade','')}</b></font>", cell_style),
                 Paragraph(f"{m.get('quantidade_minima',0)} {m.get('unidade','')}", cell_style),
-                Paragraph(f"R\$ {formatar_reais(custo_rep)}", cell_right),
+                Paragraph(f"R$ {formatar_reais(custo_rep)}", cell_right),
             ])
         t_crit = RLTable(crit_table_data, colWidths=[55 * mm, 35 * mm, 30 * mm, 25 * mm, 35 * mm])
         t_crit.setStyle(TableStyle([

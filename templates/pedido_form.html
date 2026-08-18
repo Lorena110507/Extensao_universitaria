@@ -31,10 +31,20 @@
       <label style="display:flex; align-items:center; gap:10px; background: {{ 'var(--accent-lt)' if loop.first else 'var(--card)' }};
                     border:1.5px solid {{ 'var(--primary)' if loop.first else 'var(--border)' }};
                     border-radius:12px; padding:12px 14px; cursor:pointer;" id="lbl-prod-{{ p.id }}">
-        <input type="radio" name="produto_id" value="{{ p.id }}" data-preco="{{ p.preco_venda }}"
+        <input type="radio" name="produto_id" value="{{ p.id }}" data-preco="{{ p.preco_venda }}" data-pronto="{{ p.estoque_pronto }}"
                {% if loop.first %}checked{% endif %} onchange="atualizarProduto()" style="accent-color:var(--primary); width:18px; height:18px;">
         <span style="font-size:22px;">{{ p.emoji }}</span>
-        <span class="font-crimson" style="font-size:17px; color:var(--text); flex:1;">{{ p.nome }}</span>
+        <div style="flex:1; min-width:0;">
+          <span class="font-crimson" style="font-size:17px; color:var(--text); font-weight:600; display:block;">{{ p.nome }}</span>
+          {% if p.gtin %}
+          <span style="font-size:12px; color:var(--muted); font-family:monospace;">GTIN {{ p.gtin }}</span>
+          {% endif %}
+        </div>
+        {% if p.estoque_pronto > 0 %}
+        <span style="background:var(--success-lt); color:var(--success); border:1px solid var(--success); padding:2px 8px; border-radius:10px; font-size:12px; font-weight:700;">
+          🛍️ {{ p.estoque_pronto }} pronta(s)
+        </span>
+        {% endif %}
         <span style="font-weight:700; color:var(--primary); font-size:15px;">{{ p.preco_venda|moeda }}</span>
       </label>
       {% endfor %}
@@ -43,13 +53,17 @@
 
   <div style="margin-bottom:18px;">
     <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">📏 QUANTIDADE</label>
-    <input name="quantidade" id="inp-quantidade" type="number" min="1" step="1" value="1" required class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
+    <input name="quantidade" id="inp-quantidade" type="number" min="1" step="1" inputmode="numeric" value="1" required class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
+  </div>
+
+  <div id="pronta-aviso" style="display:none; background:#d4edda; border:1.5px solid var(--success); border-radius:12px; padding:12px 14px; margin-bottom:18px; color:var(--success); text-align:center; font-size:15px; font-weight:600;">
+    ✨ <strong>Pronta-entrega disponível!</strong> Este pedido será atendido usando as peças já confeccionadas em estoque.
   </div>
 
   <div id="total-box" style="background:var(--accent-lt); border:1.5px solid var(--accent); border-radius:12px;
        padding:14px 16px; margin-bottom:18px; text-align:center;">
-    <p class="font-crimson" style="color:var(--primary); font-size:15px; font-style:italic;">Valor total do pedido</p>
-    <p class="font-serif" style="font-size:28px; font-weight:700; color:var(--primary);" id="valor-total">R$ 0,00</p>
+    <p class="font-crimson" style="color:var(--primary); font-size:15px; font-style:italic; margin:0 0 4px 0;">Valor total do pedido</p>
+    <p class="font-serif" style="font-size:28px; font-weight:700; color:var(--primary); margin:0;" id="valor-total">R$ 0,00</p>
   </div>
 
   <div style="margin-bottom:24px;">
@@ -82,10 +96,20 @@ function highlightProduto() {
 function atualizarProduto() {
   highlightProduto();
   const marcado = document.querySelector('input[name=produto_id]:checked');
-  const qtd = parseFloat(document.getElementById('inp-quantidade').value) || 0;
+  const qtd = parseInt(document.getElementById('inp-quantidade').value) || 1;
   const preco = marcado ? parseFloat(marcado.dataset.preco) : 0;
+  const pronto = marcado ? parseInt(marcado.dataset.pronto || 0) : 0;
   const total = (preco * qtd).toFixed(2).replace('.', ',');
   document.getElementById('valor-total').textContent = 'R$ ' + total;
+
+  const avisoPronta = document.getElementById('pronta-aviso');
+  if (avisoPronta) {
+    if (pronto >= qtd && qtd > 0) {
+      avisoPronta.style.display = 'block';
+    } else {
+      avisoPronta.style.display = 'none';
+    }
+  }
 }
 
 document.getElementById('inp-quantidade').addEventListener('input', atualizarProduto);
