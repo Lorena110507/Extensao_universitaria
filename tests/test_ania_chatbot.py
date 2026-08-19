@@ -17,6 +17,8 @@ class TestAniaChatbot(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         app.testing = True
+        os.environ["TESTING"] = "1"
+        os.environ["OLLAMA_EMULATE"] = "1"
 
     def setUp(self):
         init_db()

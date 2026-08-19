@@ -384,8 +384,15 @@ def init_db():
     materiais, produtos, pedidos, movimentacoes, sobras, despesas and usuarios.
     """
     os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
     cur = conn.cursor()
+    # Ativa modo WAL para alta concorrência sem travamento de arquivo
+    try:
+        cur.execute("PRAGMA journal_mode = WAL;")
+        cur.execute("PRAGMA busy_timeout = 5000;")
+        cur.execute("PRAGMA synchronous = NORMAL;")
+    except Exception:
+        pass
     # legacy generic collection storage (used for produtos, pedidos, etc.)
     cur.execute(
         """
@@ -4444,7 +4451,20 @@ def ania_chat():
         })
 
     engine = get_ania_engine()
-    resposta = engine.processar_mensagem(mensagem, g.user)
+    chat_history = session.get("ania_chat_history", [])
+    if not isinstance(chat_history, list):
+        chat_history = []
+
+    resposta = engine.processar_mensagem(mensagem, g.user, history=chat_history)
+
+    # Atualiza memória da conversa (últimas 6 interações)
+    chat_history.append({"role": "user", "content": mensagem})
+    reply_text = resposta.get("reply", "")
+    if len(reply_text) > 300:
+        reply_text = reply_text[:300] + "..."
+    chat_history.append({"role": "assistant", "content": reply_text})
+    session["ania_chat_history"] = chat_history[-6:]
+
     return jsonify(resposta)
 
 

@@ -114,10 +114,10 @@ class AniaAssistant:
     def _db_path(self):
         return getattr(self.app, 'DB_PATH', 'atelie.db')
 
-    def processar_mensagem(self, prompt: str, user: dict) -> dict:
+    def processar_mensagem(self, prompt: str, user: dict, history: Optional[list] = None) -> dict:
         """
         Processador central híbrido:
-        1. Tenta interpretar e executar via Inteligência Artificial Local (Ollama ou IA Local integrada).
+        1. Tenta interpretar e executar via Inteligência Artificial Local (Ollama ou IA Local integrada com histórico).
         2. Se a IA estiver desativada ou falhar, executa via Motor de Regras (Contingência).
         """
         if not prompt or not prompt.strip():
@@ -149,7 +149,7 @@ class AniaAssistant:
                     "unidades": getattr(self.app, "UNIDADES", ["unidades", "metros", "rolos", "kg", "gramas", "pares", "pacotes"]),
                 }
 
-                ollama_res = self.ollama.process_prompt(prompt_orig, system_ctx)
+                ollama_res = self.ollama.process_prompt(prompt_orig, system_ctx, history=history)
                 if ollama_res and isinstance(ollama_res, dict):
                     action = ollama_res.get("action")
                     params = ollama_res.get("params") or {}
@@ -176,6 +176,32 @@ class AniaAssistant:
         user_nome = user.get("nome") or user.get("username") or "Artesã(o)"
         roles = self._get_roles(user)
         roles_str = ", ".join(roles) if roles else "Colaborador"
+
+        # Operações em lote (Multi-action / Batch)
+        if action == "acoes_em_lote":
+            lista_acoes = params.get("acoes") or raw_res.get("acoes") or []
+            if lista_acoes:
+                respostas_individuais = []
+                sucessos = 0
+                for item in lista_acoes:
+                    sub_action = item.get("action")
+                    sub_params = item.get("params") or {}
+                    res_sub = self._despachar_acao_ollama(sub_action, sub_params, prompt_orig, user, item)
+                    if res_sub:
+                        respostas_individuais.append(res_sub)
+                        if res_sub.get("success"):
+                            sucessos += 1
+
+                if respostas_individuais:
+                    textos = [f"• {r.get('reply', '').splitlines()[0]}" for r in respostas_individuais if r.get('reply')]
+                    msg = f"✅ **Operações em Lote Concluídas ({sucessos}/{len(lista_acoes)})** 📦\n\n" + "\n".join(textos)
+                    voice = f"{sucessos} operações em lote foram executadas com sucesso."
+                    return {
+                        "success": sucessos > 0,
+                        "reply": msg,
+                        "voice_text": voice,
+                        "suggestions": ["Consultar estoque", "Ver alertas", "📄 Gerar PDF"]
+                    }
 
         # Conversação direta gerada pelo LLM
         if action == "conversar_direto":
@@ -1016,10 +1042,11 @@ class AniaAssistant:
             return self._executar_excluir_pedido(p_clean, prompt_orig)
 
         gatilhos_novo_pedido = [
-            "criar pedido", "novo pedido", "pedido novo", "adicionar pedido", "adicione um pedido",
-            "adicionar um pedido", "cadastrar pedido", "fazer pedido", "registrar pedido", "registre um pedido",
-            "recebi um pedido", "recebemos um pedido", "temos um pedido", "cliente pediu", "ela pediu",
-            "ele pediu", "pediram", "fazer uma encomenda", "nova encomenda", "encomenda nova", "anotar pedido"
+            "criar pedido", "criar um pedido", "crie um pedido", "crie o pedido", "novo pedido", "pedido novo",
+            "adicionar pedido", "adicione um pedido", "adicionar um pedido", "cadastrar pedido", "fazer pedido",
+            "fazer um pedido", "faca um pedido", "registrar pedido", "registre um pedido", "recebi um pedido",
+            "recebemos um pedido", "temos um pedido", "cliente pediu", "ela pediu", "ele pediu", "pediram",
+            "fazer uma encomenda", "nova encomenda", "encomenda nova", "anotar pedido"
         ]
         if any(w in p_clean for w in gatilhos_novo_pedido):
             if not self._tem_permissao(user, "pedidos", "create"):

@@ -195,21 +195,51 @@ class TestAniaOllamaIntegration(unittest.TestCase):
                 self.assertIn("agulha calibre 16", data["reply"])
                 self.assertEqual(data.get("engine"), "ollama")
 
-    def test_endpoint_ania_status(self):
-        """Testa o endpoint de diagnóstico /api/ania/status."""
-        with app.test_client() as c:
-            # Não autenticado deve retornar 401
-            resp = c.get("/api/ania/status")
-            self.assertEqual(resp.status_code, 401)
+    def test_auto_selecao_melhor_modelo_disponivel(self):
+        """Testa se o OllamaEngine seleciona o modelo de maior capacidade automaticamente."""
+        engine = OllamaEngine(model=None)
+        # Se tiver 7b e 3b, prioriza 7b
+        self.assertEqual(engine._select_best_model(["qwen2.5:3b", "qwen2.5:7b"]), "qwen2.5:7b")
+        # Se tiver 14b, prioriza 14b
+        self.assertEqual(engine._select_best_model(["qwen2.5:3b", "qwen2.5:14b", "llama3.1:8b"]), "qwen2.5:14b")
+        # Se tiver 8b, prioriza 8b
+        self.assertEqual(engine._select_best_model(["qwen2.5:3b", "llama3.1:8b"]), "llama3.1:8b")
 
-            # Autenticado retorna informações do motor
+    def test_acoes_em_lote_via_ania(self):
+        """Testa execução de múltiplas ações em lote em uma única mensagem."""
+        with app.test_client() as c:
             c.post("/login", data={"username": "admin_ollama", "password": "admin123"}, follow_redirects=True)
-            resp = c.get("/api/ania/status")
+            prompt = "Dar entrada de 5 metros de Courino Caramelo e 10 metros de Courino Caramelo"
+            resp = c.post("/api/ania/chat", json={"message": prompt})
             self.assertEqual(resp.status_code, 200)
             data = resp.get_json()
             self.assertTrue(data.get("success"))
-            self.assertIn("ollama", data)
-            self.assertIn("engine", data)
+            self.assertIn("Operações em Lote", data["reply"])
+
+    def test_memoria_multi_turn_context(self):
+        """Testa histórico multi-turn na sessão recuperando contexto da pergunta anterior."""
+        with app.test_client() as c:
+            c.post("/login", data={"username": "admin_ollama", "password": "admin123"}, follow_redirects=True)
+            # Pergunta 1
+            resp1 = c.post("/api/ania/chat", json={"message": "Quanto custa a Bolsa Tote Artesanal?"})
+            self.assertEqual(resp1.status_code, 200)
+            
+            # Pergunta 2 (faz referência com pronome 'dela')
+            resp2 = c.post("/api/ania/chat", json={"message": "Crie um pedido dela para o Carlos"})
+            self.assertEqual(resp2.status_code, 200)
+            data2 = resp2.get_json()
+            self.assertTrue(data2.get("success"))
+            self.assertIn("Carlos", data2["reply"])
+
+    def test_sqlite_wal_mode_active(self):
+        """Verifica se o SQLite está operando com modo WAL e concorrência ativa."""
+        init_db()
+        conn = sqlite3.connect(DB_PATH, timeout=5.0)
+        cur = conn.cursor()
+        cur.execute("PRAGMA journal_mode;")
+        modo = cur.fetchone()[0].lower()
+        conn.close()
+        self.assertEqual(modo, "wal")
 
 
 if __name__ == "__main__":

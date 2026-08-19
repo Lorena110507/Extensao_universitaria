@@ -2,10 +2,12 @@
 ania_ollama.py - Cliente e Motor de Inteligência Artificial Local (Ollama)
 Ateliê Haiti - 100% Gratuito e Seguro para Servidor Local/Intranet e Testes no Localhost
 
-Suporta:
-1. Conexão real com o daemon do Ollama (localhost:11434).
-2. Motor de IA Local inteligente integrado para testes no localhost sem necessidade de instalar o daemon.
-3. Tool Calling e extração estruturada em JSON com validação de RBAC.
+Recursos Avançados:
+1. Conexão real com o daemon do Ollama (localhost:11434) com auto-seleção do melhor modelo disponível.
+2. Memória de Contexto Conversacional Multi-turn (diálogos contínuos com histórico).
+3. Suporte a Operações em Lote (Batch/Multi-tool calling) para entradas/saídas múltiplas.
+4. Motor de IA Local inteligente integrado para testes e desenvolvimento.
+5. Validação rigorosa de RBAC por usuário.
 """
 
 import os
@@ -27,7 +29,8 @@ def remover_acentos(texto: str) -> str:
 
 class OllamaEngine:
     """
-    Cliente HTTP nativo e motor de IA Local para comunicação com o Ollama ou simulação inteligente em localhost.
+    Cliente HTTP nativo e motor de IA Local com suporte a seleção dinâmica de modelos,
+    memória de conversação multi-turn e operações em lote.
     """
 
     def __init__(
@@ -40,7 +43,8 @@ class OllamaEngine:
     ):
         self.host = (host or os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
         self.model = model or os.environ.get("OLLAMA_MODEL") or "qwen2.5:3b"
-        
+        self._explicit_model = bool(model or os.environ.get("OLLAMA_MODEL"))
+
         try:
             self.timeout = float(timeout or os.environ.get("OLLAMA_TIMEOUT") or 25.0)
         except (ValueError, TypeError):
@@ -64,12 +68,21 @@ class OllamaEngine:
 
     def is_online(self, force_refresh: bool = False) -> bool:
         """
-        Verifica a disponibilidade da IA.
-        Se o daemon do Ollama estiver rodando na porta 11434, usa o daemon real.
-        Se não estiver rodando (desenvolvimento em localhost), ativa o motor de IA Local integrado.
+        Verifica a disponibilidade da IA e auto-seleciona o melhor modelo instalado no Ollama.
         """
         if not self.enabled:
             return False
+
+        if os.environ.get("TESTING") == "1":
+            self._is_real_daemon = False
+            if self.emulate_if_offline:
+                self._cached_available_models = [f"{self.model} (IA Local)"]
+                self._cached_health_status = True
+                return True
+            else:
+                self._cached_available_models = []
+                self._cached_health_status = False
+                return False
 
         agora = time.time()
         if not force_refresh and (agora - self._last_health_check < 15.0):
@@ -82,13 +95,18 @@ class OllamaEngine:
                 headers={"User-Agent": "AniaAssistant/1.0"},
                 method="GET"
             )
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     models = [m.get("name", "") for m in data.get("models", [])]
                     self._cached_available_models = models
                     self._is_real_daemon = True
                     self._cached_health_status = True
+
+                    # Auto-seleção do melhor modelo disponível se não foi explicitamente fixado no .env
+                    if not self._explicit_model and models:
+                        self.model = self._select_best_model(models)
+
                     return True
         except Exception:
             pass
@@ -103,6 +121,32 @@ class OllamaEngine:
         self._cached_available_models = []
         self._cached_health_status = False
         return False
+
+    def _select_best_model(self, available: List[str]) -> str:
+        """
+        Ranking de preferência automática de modelos para artesanato e português.
+        """
+        # 1. Modelos 14B+
+        for m in available:
+            if "14b" in m.lower():
+                return m
+        # 2. Modelos 8B (Llama 3.1 / Llama 3)
+        for m in available:
+            if "8b" in m.lower() or "llama3.1" in m.lower() or "llama3.3" in m.lower():
+                return m
+        # 3. Modelos 7B (Qwen 2.5 7B / DeepSeek 7B)
+        for m in available:
+            if "7b" in m.lower() or "qwen2.5:7b" in m.lower():
+                return m
+        # 4. Modelos 3B (Qwen 2.5 3B / Llama 3.2 3B)
+        for m in available:
+            if "qwen2.5:3b" in m.lower() or "qwen2.5" in m.lower():
+                return m
+        for m in available:
+            if "3b" in m.lower() or "llama3.2" in m.lower():
+                return m
+        # 5. Qualquer outro disponível
+        return available[0] if available else self.model
 
     def get_status(self) -> Dict[str, Any]:
         """
@@ -121,39 +165,56 @@ class OllamaEngine:
             "mode": "ollama_hybrid" if online else "contingency_rules",
         }
 
-    def process_prompt(self, prompt: str, system_context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def process_prompt(
+        self,
+        prompt: str,
+        system_context: Dict[str, Any],
+        history: Optional[List[Dict[str, str]]] = None
+    ) -> Optional[Dict[str, Any]]:
         """
-        Envia o prompt do usuário para o Ollama ou processa pelo motor generativo local.
+        Envia o prompt do usuário para o Ollama com suporte a histórico multi-turn
+        ou processa pelo motor generativo local.
         """
         if not self.enabled or not self.is_online():
             return None
 
         # 1. Se o daemon real do Ollama estiver ativo, chama a API HTTP /api/chat
         if self._is_real_daemon:
-            daemon_res = self._call_real_ollama(prompt, system_context)
+            daemon_res = self._call_real_ollama(prompt, system_context, history)
             if daemon_res:
                 return daemon_res
 
         # 2. Se o daemon não estiver ativo e emulação estiver ligada, processa via Motor Generativo de IA Local
         if self.emulate_if_offline:
-            return self._process_local_ai_engine(prompt, system_context)
+            return self._process_local_ai_engine(prompt, system_context, history)
 
         return None
 
-    def _call_real_ollama(self, prompt: str, system_context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _call_real_ollama(
+        self,
+        prompt: str,
+        system_context: Dict[str, Any],
+        history: Optional[List[Dict[str, str]]] = None
+    ) -> Optional[Dict[str, Any]]:
         system_prompt = self._build_system_prompt(system_context)
+        
+        # Monta array de mensagens incluindo histórico multi-turn recente
+        messages = [{"role": "system", "content": system_prompt}]
+        if history and isinstance(history, list):
+            for h in history[-6:]:  # Últimas 6 mensagens
+                if isinstance(h, dict) and "role" in h and "content" in h:
+                    messages.append({"role": h["role"], "content": str(h["content"])})
+        messages.append({"role": "user", "content": prompt})
+
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
+            "messages": messages,
             "format": "json",
             "stream": False,
             "options": {
                 "temperature": 0.2,
                 "top_p": 0.9,
-                "num_predict": 350,
+                "num_predict": 450,
             }
         }
 
@@ -186,10 +247,15 @@ class OllamaEngine:
 
         return None
 
-    def _process_local_ai_engine(self, prompt: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_local_ai_engine(
+        self,
+        prompt: str,
+        ctx: Dict[str, Any],
+        history: Optional[List[Dict[str, str]]] = None
+    ) -> Dict[str, Any]:
         """
         Motor generativo e semântico de IA Local que analisa a intenção do usuário,
-        extrai entidades contextuais do ateliê e produz a saída estruturada em JSON.
+        extrai entidades contextuais do ateliê (com suporte a histórico e lote) e produz a saída JSON.
         """
         start_t = time.time()
         p_clean = remover_acentos(prompt)
@@ -198,20 +264,67 @@ class OllamaEngine:
         produtos_nomes = ctx.get("produtos_nomes", [])
         produtos_lista = ctx.get("produtos", [])
 
-        # ── 1. FERRAMENTAS / TOOL CALLING ─────────────────────────────────────
+        # ── RESOLUÇÃO DE REFERÊNCIAS DO HISTÓRICO (MULTI-TURN) ────────────────
+        ultimo_produto_mencionado = None
+        ultimo_cliente_mencionado = None
+        if history and isinstance(history, list):
+            for h in reversed(history):
+                c = h.get("content", "")
+                if not ultimo_produto_mencionado:
+                    for p_nom in produtos_nomes:
+                        if remover_acentos(p_nom) in remover_acentos(c):
+                            ultimo_produto_mencionado = p_nom
+                            break
+                if not ultimo_cliente_mencionado:
+                    m_c = re.search(r"(?:cliente|para|de)\s+([A-Z][a-zÀ-ÿ]+)", c)
+                    if m_c:
+                        ultimo_cliente_mencionado = m_c.group(1)
 
-        # Criar / Adicionar Pedido (reconhecimento abrangente e direto de intenção)
+        # ── 1. OPERAÇÕES EM LOTE (BATCH / MULTI-ACTION) ───────────────────────
+        # Exemplo: "Dar entrada de 10 courino, 20 ziper e 5 linhas"
+        if (" e " in p_clean or "," in prompt) and any(w in p_clean for w in ["dar entrada", "chegou", "adicionar ao estoque", "dar baixa", "usei"]):
+            is_entrada = any(w in p_clean for w in ["dar entrada", "chegou", "adicionar", "repor", "entrada"])
+            pedacos = re.split(r",|\be\b", prompt)
+            lote_acoes = []
+            for ped in pedacos:
+                ped_c = remover_acentos(ped)
+                mat_enc = self._find_best_match(ped_c, materiais_nomes)
+                if mat_enc:
+                    qtd_ped = self._extract_number(ped_c, default=1.0)
+                    if is_entrada:
+                        lote_acoes.append({
+                            "action": "dar_entrada_material",
+                            "params": {"material": mat_enc, "quantidade": qtd_ped}
+                        })
+                    else:
+                        lote_acoes.append({
+                            "action": "dar_baixa_material",
+                            "params": {"material": mat_enc, "quantidade": qtd_ped, "motivo": "Uso em produção"}
+                        })
+            if len(lote_acoes) >= 2:
+                return {
+                    "action": "acoes_em_lote",
+                    "params": {"acoes": lote_acoes},
+                    "confidence": 0.96,
+                    "_elapsed_ms": round((time.time() - start_t) * 1000, 1),
+                    "_model": f"{self.model} (IA Local)"
+                }
+
+        # ── 2. FERRAMENTAS / TOOL CALLING ─────────────────────────────────────
+
+        # Criar / Adicionar Pedido
         gatilhos_novo_pedido = [
-            "criar pedido", "novo pedido", "pedido novo", "adicionar pedido", "adicione um pedido",
-            "adicionar um pedido", "cadastrar pedido", "fazer pedido", "registrar pedido", "registre um pedido",
-            "recebi um pedido", "recebemos um pedido", "temos um pedido", "cliente pediu", "ela pediu",
-            "ele pediu", "pediram", "fazer uma encomenda", "nova encomenda", "encomenda nova", "anotar pedido"
+            "criar pedido", "criar um pedido", "crie um pedido", "crie o pedido", "novo pedido", "pedido novo",
+            "adicionar pedido", "adicione um pedido", "adicionar um pedido", "cadastrar pedido", "fazer pedido",
+            "fazer um pedido", "faca um pedido", "registrar pedido", "registre um pedido", "recebi um pedido",
+            "recebemos um pedido", "temos um pedido", "cliente pediu", "ela pediu", "ele pediu", "pediram",
+            "fazer uma encomenda", "nova encomenda", "encomenda nova", "anotar pedido"
         ]
         if any(w in p_clean for w in gatilhos_novo_pedido):
             qtd_m = re.search(r"(\d+)\s*(?:unidades?|pecas?|bolsas?|x)?", p_clean)
             qtd = int(qtd_m.group(1)) if qtd_m else 1
 
-            # Busca produto por GTIN se houver código no prompt
+            # Busca por GTIN
             gtin_m = re.search(r"\b(\d{8,14})\b", prompt)
             prod_match = None
             if gtin_m:
@@ -221,11 +334,14 @@ class OllamaEngine:
                         prod_match = p.get("nome")
                         break
 
-            # Se não encontrou por GTIN, busca por nome de produto
             if not prod_match:
                 prod_match = self._find_best_match(p_clean, produtos_nomes)
 
-            # Extração avançada do cliente
+            # Fallback para histórico se usuário disse "dela", "desse", etc.
+            if not prod_match and any(pron in p_clean for pron in ["dela", "dele", "dessa", "desse", "mesma bolsa"]):
+                prod_match = ultimo_produto_mencionado
+
+            # Extração de cliente
             cliente = "Cliente Balcão"
             c_match = re.search(
                 r"(?:para\s+a|para\s+o|para|de\s+uma\s+cliente\s+chamada|de\s+um\s+cliente\s+chamado|cliente\s+chamada|cliente\s+chamado|da\s+cliente|do\s+cliente|cliente)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s]+?)(?:\s*,|\s+ela\b|\s+ele\b|\s+que\b|\s+pediu\b|\s+de\b|\s+da\b|\s+do\b|\s+com\b|\.|$|\n)",
@@ -317,7 +433,7 @@ class OllamaEngine:
                 novo_st = "Pendente"
 
             c_match = re.search(r"(?:pedido\s+de|pedido\s+do|pedido\s+da|cliente)\s+([A-Za-zÀ-ÖØ-öø-ÿ\s]+?)(?:\s+para|\.|$)", prompt, re.IGNORECASE)
-            cliente = c_match.group(1).strip().title() if c_match else ""
+            cliente = c_match.group(1).strip().title() if c_match else (ultimo_cliente_mencionado or "")
             return {
                 "action": "mudar_status_pedido",
                 "params": {"cliente": cliente, "novo_status": novo_st},
@@ -342,7 +458,7 @@ class OllamaEngine:
 
         # Ajuste estoque pronto
         if any(w in p_clean for w in ["ajustar pecas prontas", "adicionar pecas prontas", "remover peca pronta", "ajustar estoque pronto"]) or (("pecas prontas" in p_clean or "peca pronta" in p_clean) and any(w in p_clean for w in ["adicionar", "remover", "colocar", "tirar"])):
-            prod_match = self._find_best_match(p_clean, produtos_nomes)
+            prod_match = self._find_best_match(p_clean, produtos_nomes) or ultimo_produto_mencionado
             qtd = int(self._extract_number(p_clean, default=1.0))
             op = "remover" if any(w in p_clean for w in ["remover", "retirar", "diminuir", "tirar"]) else "adicionar"
             return {
@@ -479,7 +595,7 @@ class OllamaEngine:
                 "_model": f"{self.model} (IA Local)"
             }
 
-        # ── 2. CONVERSAÇÃO DIRETA GENERATIVA ──────────────────────────────────
+        # ── 3. CONVERSAÇÃO DIRETA GENERATIVA ──────────────────────────────────
         saudacoes = ["ola", "oi", "bom dia", "boa tarde", "boa noite", "ania", "tudo bem", "quem e voce", "ajuda", "menu"]
         if any(p_clean.startswith(s) or p_clean == s for s in saudacoes):
             reply = (
@@ -487,7 +603,7 @@ class OllamaEngine:
                 f"Estou pronta para ajudar você em tempo real com:\n"
                 f"• 📄 **Relatórios & PDF:** *\"Gerar relatório em PDF\"*\n"
                 f"• 🧾 **Pedidos:** *\"Criar pedido para Maria de 2 Bolsas Tote\"*\n"
-                f"• 📦 **Estoque:** *\"Quanto courino temos em estoque?\"* ou *\"Dar baixa de 2 zíperes\"*\n"
+                f"• 📦 **Estoque & Lote:** *\"Dar entrada de 10 courinos e 20 zíperes\"*\n"
                 f"• 💰 **Financeiro:** *\"Qual o faturamento e saldo do ateliê?\"*\n\n"
                 f"Como posso ajudar sua produção agora?"
             )
@@ -577,7 +693,7 @@ class OllamaEngine:
         return f"""Você é a Ania, assistente inteligente e prestativa do Ateliê Haiti (artesanato e confecção de bolsas).
 Usuário atual: {user_name} (Papéis: {roles_str}).
 
-Seu objetivo é interpretar a mensagem do usuário e SEMPRE responder em formato JSON estrito.
+Seu objetivo é interpretar a mensagem do usuário (considerando o histórico da conversa se houver) e SEMPRE responder em formato JSON estrito.
 
 ### ITENS CADASTRADOS NO ATELIÊ:
 - Insumos/Materiais em Estoque: {json.dumps(materiais_nomes, ensure_ascii=False)}
@@ -611,7 +727,8 @@ Seu objetivo é interpretar a mensagem do usuário e SEMPRE responder em formato
 23. "consultar_sobras": Ver retalhos disponíveis. Parâmetros: {{}}
 24. "consultar_minhas_permissoes": Ver perfil e acessos do usuário. Parâmetros: {{}}
 25. "navegar": Abrir tela do sistema. Parâmetros: {{"tela": "estoque|pedidos|financeiro|relatorios|produtos|sobras|usuarios|roles|adicionar|baixa"}}
-26. "conversar_direto": Responder dúvidas artesanais, saudações, bate-papo geral ou mensagens que não executam ações. Parâmetros: {{"reply": "sua resposta amigável e artesanal", "voice_text": "texto curto para síntese de voz", "suggestions": ["sugestão 1", "sugestão 2"]}}
+26. "acoes_em_lote": Quando o usuário solicitar múltiplas ações na mesma mensagem. Parâmetros: {{"acoes": [{{"action": "...", "params": {{...}}}}]}}
+27. "conversar_direto": Responder dúvidas artesanais, saudações, bate-papo geral ou mensagens que não executam ações. Parâmetros: {{"reply": "sua resposta amigável e artesanal", "voice_text": "texto curto para síntese de voz", "suggestions": ["sugestão 1", "sugestão 2"]}}
 
 ### FORMATO OBRIGATÓRIO DE RESPOSTA (JSON):
 {{
