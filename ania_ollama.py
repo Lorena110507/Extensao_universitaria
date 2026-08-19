@@ -42,9 +42,9 @@ class OllamaEngine:
         self.model = model or os.environ.get("OLLAMA_MODEL") or "qwen2.5:3b"
         
         try:
-            self.timeout = float(timeout or os.environ.get("OLLAMA_TIMEOUT") or 6.0)
+            self.timeout = float(timeout or os.environ.get("OLLAMA_TIMEOUT") or 25.0)
         except (ValueError, TypeError):
-            self.timeout = 6.0
+            self.timeout = 25.0
 
         if enabled is not None:
             self.enabled = enabled
