@@ -114,18 +114,20 @@ class AniaAssistant:
     def _db_path(self):
         return getattr(self.app, 'DB_PATH', 'atelie.db')
 
-    def processar_mensagem(self, prompt: str, user: dict, history: Optional[list] = None) -> dict:
+    def processar_mensagem(self, prompt: str, user: dict, history: Optional[list] = None, mode: Optional[str] = None) -> dict:
         """
-        Processador central híbrido:
-        1. Tenta interpretar e executar via Inteligência Artificial Local (Ollama ou IA Local integrada com histórico).
-        2. Se a IA estiver desativada ou falhar, executa via Motor de Regras (Contingência).
+        Processador central configurável:
+        - mode="ia": Executa estritamente via IA (Ollama). Se falhar ou estiver offline, emite mensagem de erro explícita sem fallback silencioso.
+        - mode="contingencia": Executa estritamente via Motor de Regras Locais (Contingência).
+        - mode=None ou "auto": Se IA estiver online usa IA; se o Ollama estiver desabilitado, usa contingência.
         """
         if not prompt or not prompt.strip():
             return {
+                "success": True,
                 "reply": "Olá! Estou ouvindo. Como posso te ajudar hoje no ateliê?",
                 "voice_text": "Olá! Estou ouvindo. Como posso te ajudar hoje no ateliê?",
                 "suggestions": ["📄 Enviar relatório em PDF", "📦 Consultar estoque", "🧾 Pedidos pendentes", "💰 Resumo financeiro"],
-                "engine": "regras_locais",
+                "engine": "regras_locais" if mode == "contingencia" else "ollama",
             }
 
         prompt_orig = prompt.strip()
@@ -133,42 +135,69 @@ class AniaAssistant:
         roles = self._get_roles(user)
         roles_str = ", ".join(roles) if roles else "Colaborador"
 
-        # ── 1. TENTATIVA VIA MOTOR DE IA LOCAL (OLLAMA / LOCAL AI) ───────────
-        if self.ollama and self.ollama.enabled and self.ollama.is_online():
-            try:
-                materiais = self._carregar_materiais()
-                produtos = self._carregar_produtos()
-                system_ctx = {
-                    "user_name": user_nome,
-                    "roles_str": roles_str,
-                    "materiais": [{"id": m.get("id"), "nome": m.get("nome"), "gtin": m.get("gtin")} for m in materiais],
-                    "produtos": [{"id": p.get("id"), "nome": p.get("nome"), "gtin": p.get("gtin"), "preco_venda": p.get("preco_venda")} for p in produtos],
-                    "materiais_nomes": [m.get("nome") for m in materiais if m.get("nome")],
-                    "produtos_nomes": [p.get("nome") for p in produtos if p.get("nome")],
-                    "categorias": getattr(self.app, "CATEGORIAS", ["Courino", "Metal", "Aviamento", "Tecido", "Embalagem", "Outros"]),
-                    "unidades": getattr(self.app, "UNIDADES", ["unidades", "metros", "rolos", "kg", "gramas", "pares", "pacotes"]),
-                }
+        # ── 1. MODO CONTINGÊNCIA SELECIONADO OU OLLAMA DESABILITADO ──────────
+        if mode == "contingencia" or (not mode and (not self.ollama or not self.ollama.enabled)):
+            res_regras = self._processar_com_regras(prompt_orig, user)
+            if "success" not in res_regras:
+                res_regras["success"] = not bool(res_regras.get("denied"))
+            res_regras["engine"] = "regras_locais"
+            return res_regras
 
-                ollama_res = self.ollama.process_prompt(prompt_orig, system_ctx, history=history)
-                if ollama_res and isinstance(ollama_res, dict):
-                    action = ollama_res.get("action")
-                    params = ollama_res.get("params") or {}
+        # ── 2. MODO IA (OLLAMA / MODELO GENERATIVO) ──────────────────────────
+        if not self.ollama or not self.ollama.enabled or not self.ollama.is_online():
+            return {
+                "success": False,
+                "reply": "⚠️ **IA Offline**: Não foi possível conectar ao servidor da IA local (Ollama).\n\n"
+                         "Verifique se o Ollama está em execução no computador ou selecione o **Modo Contingência** no topo para continuar.",
+                "voice_text": "A inteligência artificial está offline no momento. Alterne para o modo de contingência.",
+                "suggestions": ["Alternar para Contingência", "Consultar estoque", "Ver pedidos"],
+                "engine": "ollama_offline"
+            }
 
-                    despacho = self._despachar_acao_ollama(action, params, prompt_orig, user, ollama_res)
-                    if despacho:
-                        despacho["engine"] = "ollama"
-                        despacho["model"] = ollama_res.get("_model", self.ollama.model)
-                        if "_elapsed_ms" in ollama_res:
-                            despacho["elapsed_ms"] = ollama_res["_elapsed_ms"]
-                        return despacho
-            except Exception:
-                # Falha na IA -> segue para contingência de regras
-                pass
+        try:
+            materiais = self._carregar_materiais()
+            produtos = self._carregar_produtos()
+            system_ctx = {
+                "user_name": user_nome,
+                "roles_str": roles_str,
+                "materiais": [{"id": m.get("id"), "nome": m.get("nome"), "gtin": m.get("gtin")} for m in materiais],
+                "produtos": [{"id": p.get("id"), "nome": p.get("nome"), "gtin": p.get("gtin"), "preco_venda": p.get("preco_venda")} for p in produtos],
+                "materiais_nomes": [m.get("nome") for m in materiais if m.get("nome")],
+                "produtos_nomes": [p.get("nome") for p in produtos if p.get("nome")],
+                "categorias": getattr(self.app, "CATEGORIAS", ["Courino", "Metal", "Aviamento", "Tecido", "Embalagem", "Outros"]),
+                "unidades": getattr(self.app, "UNIDADES", ["unidades", "metros", "rolos", "kg", "gramas", "pares", "pacotes"]),
+            }
 
-        # ── 2. MOTOR DETERMINÍSTICO DE CONTINGÊNCIA (REGRAS / REGEX) ─────────
-        res_regras = self._processar_com_regras(prompt_orig, user)
-        res_regras["engine"] = "regras_locais"
-        return res_regras
+            ollama_res = self.ollama.process_prompt(prompt_orig, system_ctx, history=history)
+            if ollama_res and isinstance(ollama_res, dict):
+                action = ollama_res.get("action")
+                params = ollama_res.get("params") or {}
+
+                despacho = self._despachar_acao_ollama(action, params, prompt_orig, user, ollama_res)
+                if despacho:
+                    despacho["engine"] = "ollama"
+                    despacho["model"] = ollama_res.get("_model", self.ollama.model)
+                    if "_elapsed_ms" in ollama_res:
+                        despacho["elapsed_ms"] = ollama_res["_elapsed_ms"]
+                    return despacho
+
+            return {
+                "success": False,
+                "reply": "⚠️ **Erro no Processamento da IA**: O modelo de inteligência artificial não conseguiu compreender a solicitação.\n\n"
+                         "Tente reformular sua frase ou selecione o **Modo Contingência** no topo.",
+                "voice_text": "Não foi possível gerar a resposta com a inteligência artificial.",
+                "suggestions": ["Alternar para Contingência", "Consultar estoque", "🧾 Pedidos"],
+                "engine": "ollama_error"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "reply": f"⚠️ **Erro na IA**: Ocorreu uma falha durante a execução do modelo: `{str(e)}`.\n\n"
+                         "Você pode alternar para o **Modo Contingência** para prosseguir.",
+                "voice_text": "Ocorreu um erro no processamento da inteligência artificial.",
+                "suggestions": ["Alternar para Contingência"],
+                "engine": "ollama_error"
+            }
 
     # ── DESPACHO DE TOOL CALLING / AÇÕES DO OLLAMA ───────────────────────────
 

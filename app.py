@@ -4450,12 +4450,15 @@ def ania_chat():
             "suggestions": ["📦 Consultar estoque", "🧾 Pedidos", "📊 Alertas", "Minhas permissões"]
         })
 
+    mode = (data.get("mode") or session.get("ania_mode") or "ia").lower()
+    session["ania_mode"] = mode
+
     engine = get_ania_engine()
     chat_history = session.get("ania_chat_history", [])
     if not isinstance(chat_history, list):
         chat_history = []
 
-    resposta = engine.processar_mensagem(mensagem, g.user, history=chat_history)
+    resposta = engine.processar_mensagem(mensagem, g.user, history=chat_history, mode=mode)
 
     # Atualiza memória da conversa (últimas 6 interações)
     chat_history.append({"role": "user", "content": mensagem})

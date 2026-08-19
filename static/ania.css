@@ -180,6 +180,40 @@
   box-shadow: 0 0 6px #10b981;
 }
 
+.ania-mode-switch {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 12px;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ania-mode-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1.2;
+}
+
+.ania-mode-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.ania-mode-btn.active {
+  background: #fff;
+  color: #8b3a2b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  font-weight: 700;
+}
+
 .ania-engine-badge {
   font-size: 10px;
   padding: 1px 7px;

@@ -1,6 +1,6 @@
 /**
  * ania.js - Controlador do Chatbot e Assistente de Voz Ania
- * Ateliê Haiti - 100% Gratuito (Web Speech API)
+ * Ateliê Haiti - 100% Gratuito (Web Speech API com Voz Feminina e Seletor de Modo IA/Contingência)
  */
 
 (function () {
@@ -15,6 +15,8 @@
   const btnSound = document.getElementById('ania-btn-sound');
   const btnMic = document.getElementById('ania-btn-mic');
   const btnSend = document.getElementById('ania-btn-send');
+  const btnModeIa = document.getElementById('ania-btn-mode-ia');
+  const btnModeRules = document.getElementById('ania-btn-mode-rules');
   const inputEl = document.getElementById('ania-input');
   const messagesContainer = document.getElementById('ania-messages');
   const suggestionsBar = document.getElementById('ania-suggestions-bar');
@@ -28,8 +30,41 @@
   let isListening = false;
   let isSpeaking = false;
   let isVoiceMuted = localStorage.getItem('ania_voice_muted') === 'true';
+  let currentMode = localStorage.getItem('ania_mode') || 'ia'; // 'ia' ou 'contingencia'
   let recognition = null;
   let synth = window.speechSynthesis || null;
+
+  // ── Seletor de Modo (IA vs Contingência) ──────────────────────────────
+  function atualizarBotoesModo() {
+    if (btnModeIa && btnModeRules) {
+      if (currentMode === 'ia') {
+        btnModeIa.classList.add('active');
+        btnModeRules.classList.remove('active');
+      } else {
+        btnModeRules.classList.add('active');
+        btnModeIa.classList.remove('active');
+      }
+    }
+  }
+
+  function definirModo(modo) {
+    currentMode = modo;
+    localStorage.setItem('ania_mode', modo);
+    atualizarBotoesModo();
+    if (modo === 'contingencia') {
+      atualizarBadgeEngine('regras_locais');
+    } else {
+      verificarStatusIA();
+    }
+  }
+
+  if (btnModeIa) {
+    btnModeIa.addEventListener('click', () => definirModo('ia'));
+  }
+  if (btnModeRules) {
+    btnModeRules.addEventListener('click', () => definirModo('contingencia'));
+  }
+  atualizarBotoesModo();
 
   // ── Inicialização do Web Speech API: Reconhecimento de Voz (STT) ──────
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -119,7 +154,7 @@
     }
   }
 
-  // ── Inicialização do Web Speech API: Síntese de Voz (TTS) ────────────
+  // ── Inicialização do Web Speech API: Síntese de Voz Feminina (TTS) ────
   function atualizarBotaoSom() {
     if (!btnSound) return;
     if (isVoiceMuted) {
@@ -142,12 +177,52 @@
     }
   }
 
+  function escolherVozFeminina(voices) {
+    if (!voices || voices.length === 0) return null;
+
+    // Filtra vozes em português (pt-BR / pt)
+    const ptVoices = voices.filter(v => (v.lang === 'pt-BR' || (v.lang && v.lang.startsWith('pt'))));
+
+    // Nomes típicos de vozes femininas nos navegadores e SOs
+    const femaleKeywords = [
+      'female', 'feminina', 'mulher', 'luciana', 'francisca', 'maria', 'vitoria', 'vitória',
+      'leticia', 'letícia', 'helena', 'yara', 'raquel', 'thalita', 'camila', 'fernanda',
+      'google português do brasil', 'microsoft maria', 'microsoft francis', 'joana'
+    ];
+
+    // Nomes masculinos a serem estritamente evitados
+    const maleKeywords = ['male', 'homem', 'daniel', 'ricardo', 'jorge', 'antonio', 'felipe'];
+
+    // 1. Tenta achar voz feminina em português
+    let bestVoice = ptVoices.find(v => {
+      const name = (v.name || '').toLowerCase();
+      const isFemale = femaleKeywords.some(kw => name.includes(kw));
+      const isMale = maleKeywords.some(kw => name.includes(kw));
+      return isFemale && !isMale;
+    });
+
+    // 2. Se não encontrou por palavra-chave, pega a primeira voz pt que não seja explicitamente masculina
+    if (!bestVoice && ptVoices.length > 0) {
+      bestVoice = ptVoices.find(v => {
+        const name = (v.name || '').toLowerCase();
+        return !maleKeywords.some(kw => name.includes(kw));
+      }) || ptVoices[0];
+    }
+
+    // 3. Fallback geral
+    if (!bestVoice) {
+      bestVoice = voices.find(v => femaleKeywords.some(kw => (v.name || '').toLowerCase().includes(kw))) || null;
+    }
+
+    return bestVoice;
+  }
+
   function falarTexto(texto) {
     if (isVoiceMuted || !synth || !texto) return;
 
     pararFala();
 
-    // Limpa marcações markdown e caracteres especiais para fala natural
+    // Limpa marcações markdown e caracteres especiais para fala fluida
     const textoLimpo = texto
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
@@ -162,14 +237,13 @@
 
     const utter = new SpeechSynthesisUtterance(textoLimpo);
     utter.lang = 'pt-BR';
-    utter.rate = 1.05;
-    utter.pitch = 1.0;
+    utter.rate = 1.03;
+    utter.pitch = 1.15; // Pitch elevado para tom feminino suave e agradável
 
-    // Tenta encontrar uma voz em português brasileiro
     const voices = synth.getVoices();
-    const ptVoice = voices.find(v => v.lang === 'pt-BR' || v.lang.startsWith('pt')) || null;
-    if (ptVoice) {
-      utter.voice = ptVoice;
+    const vozFeminina = escolherVozFeminina(voices);
+    if (vozFeminina) {
+      utter.voice = vozFeminina;
     }
 
     utter.onstart = function () {
@@ -203,7 +277,7 @@
       const modelNome = model || 'IA Local';
       engineBadge.textContent = `✨ IA Local (${modelNome})`;
       engineBadge.className = 'ania-engine-badge ollama-active';
-      engineBadge.title = `Inteligência Artificial Local ativa no servidor via Ollama (${modelNome}).`;
+      engineBadge.title = `Inteligência Artificial Local ativa via Ollama (${modelNome}).`;
     } else {
       engineBadge.textContent = '⚡ Contingência Local';
       engineBadge.className = 'ania-engine-badge rules-active';
@@ -216,7 +290,7 @@
       const resp = await fetch('/api/ania/status');
       if (resp.ok) {
         const data = await resp.json();
-        if (data.ollama && data.ollama.online) {
+        if (data.ollama && data.ollama.online && currentMode === 'ia') {
           atualizarBadgeEngine('ollama', data.ollama.model_configured);
         } else {
           atualizarBadgeEngine('regras_locais');
@@ -232,7 +306,11 @@
     chatWindow.classList.add('open');
     if (overlay) overlay.classList.add('open');
     if (fab) fab.style.display = 'none';
-    verificarStatusIA();
+    if (currentMode === 'ia') {
+      verificarStatusIA();
+    } else {
+      atualizarBadgeEngine('regras_locais');
+    }
     setTimeout(() => {
       if (inputEl) inputEl.focus();
     }, 150);
@@ -340,6 +418,11 @@
       chip.className = 'ania-chip';
       chip.textContent = s;
       chip.onclick = function () {
+        if (s === 'Alternar para Contingência') {
+          definirModo('contingencia');
+          adicionarMensagemBot('⚙️ Modo de Contingência ativado! Agora processando com respostas locais determinísticas.');
+          return;
+        }
         enviarMensagem(s);
       };
       suggestionsBar.appendChild(chip);
@@ -359,7 +442,7 @@
       const resp = await fetch('/api/ania/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: prompt })
+        body: JSON.stringify({ message: prompt, mode: currentMode })
       });
 
       removerDigitando();
@@ -376,7 +459,7 @@
         atualizarBadgeEngine(data.engine, data.model);
       }
 
-      adicionarMensagemBot(data.reply || 'Operação concluída com sucesso.', Boolean(data.denied));
+      adicionarMensagemBot(data.reply || 'Operação concluída com sucesso.', Boolean(data.denied || data.success === false));
       
       if (data.voice_text) {
         falarTexto(data.voice_text);

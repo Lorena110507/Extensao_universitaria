@@ -27,7 +27,11 @@
         <div class="ania-status">
           <span class="ania-status-dot"></span>
           <span id="ania-status-text">Online</span>
-          <span id="ania-engine-badge" class="ania-engine-badge" title="Status da Inteligência Artificial">⚡ Contingência Local</span>
+          <div class="ania-mode-switch" id="ania-mode-switch" role="group" aria-label="Modo de Operação">
+            <button type="button" id="ania-btn-mode-ia" class="ania-mode-btn active" title="Usar Modelo de Inteligência Artificial (Ollama)">✨ IA</button>
+            <button type="button" id="ania-btn-mode-rules" class="ania-mode-btn" title="Usar Modo de Contingência (Regras Determinísticas)">⚙️ Contingência</button>
+          </div>
+          <span id="ania-engine-badge" class="ania-engine-badge" title="Status do Motor Ativo">✨ IA</span>
         </div>
       </div>
     </div>

@@ -241,6 +241,31 @@ class TestAniaOllamaIntegration(unittest.TestCase):
         conn.close()
         self.assertEqual(modo, "wal")
 
+    def test_modo_contingencia_estrito_via_api(self):
+        """Testa se o endpoint respeita o modo 'contingencia' selecionado pelo usuário."""
+        with app.test_client() as c:
+            c.post("/login", data={"username": "admin_ollama", "password": "admin123"}, follow_redirects=True)
+            resp = c.post("/api/ania/chat", json={"message": "Consultar estoque", "mode": "contingencia"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data.get("success"))
+            self.assertEqual(data.get("engine"), "regras_locais")
+
+    def test_modo_ia_offline_erro_explicito(self):
+        """Testa se no modo IA, quando o Ollama está desativado/offline, retorna erro sem mudar para contingência."""
+        import sys
+        engine_mock = MagicMock(spec=OllamaEngine)
+        engine_mock.enabled = False
+        engine_mock.is_online.return_value = False
+        
+        assistant = AniaAssistant(sys.modules["app"], ollama_engine=engine_mock)
+        user = {"username": "admin", "roles": ["Admin"]}
+        res = assistant.processar_mensagem("Consultar estoque", user, mode="ia")
+        
+        self.assertFalse(res.get("success"))
+        self.assertIn("IA Offline", res.get("reply"))
+        self.assertEqual(res.get("engine"), "ollama_offline")
+
 
 if __name__ == "__main__":
     unittest.main()
