@@ -20,6 +20,7 @@
   const suggestionsBar = document.getElementById('ania-suggestions-bar');
   const voiceListeningBox = document.getElementById('ania-voice-listening');
   const voiceStatusText = document.getElementById('ania-voice-status-text');
+  const engineBadge = document.getElementById('ania-engine-badge');
 
   if (!fab || !chatWindow) return;
 
@@ -195,11 +196,43 @@
     isSpeaking = false;
   }
 
+  // ── Verificação do Status do Motor de IA ───────────────────────────
+  function atualizarBadgeEngine(engine, model) {
+    if (!engineBadge) return;
+    if (engine === 'ollama' || engine === 'ollama_hybrid') {
+      const modelNome = model || 'IA Local';
+      engineBadge.textContent = `✨ IA Local (${modelNome})`;
+      engineBadge.className = 'ania-engine-badge ollama-active';
+      engineBadge.title = `Inteligência Artificial Local ativa no servidor via Ollama (${modelNome}).`;
+    } else {
+      engineBadge.textContent = '⚡ Contingência Local';
+      engineBadge.className = 'ania-engine-badge rules-active';
+      engineBadge.title = 'Motor de contingência determinístico ativo (Respostas locais instantâneas).';
+    }
+  }
+
+  async function verificarStatusIA() {
+    try {
+      const resp = await fetch('/api/ania/status');
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.ollama && data.ollama.online) {
+          atualizarBadgeEngine('ollama', data.ollama.model_configured);
+        } else {
+          atualizarBadgeEngine('regras_locais');
+        }
+      }
+    } catch (e) {
+      atualizarBadgeEngine('regras_locais');
+    }
+  }
+
   // ── Abertura e Fechamento do Chat ─────────────────────────────────────
   function abrirChat() {
     chatWindow.classList.add('open');
     if (overlay) overlay.classList.add('open');
     if (fab) fab.style.display = 'none';
+    verificarStatusIA();
     setTimeout(() => {
       if (inputEl) inputEl.focus();
     }, 150);
@@ -338,6 +371,10 @@
       }
 
       const data = await resp.json();
+
+      if (data.engine) {
+        atualizarBadgeEngine(data.engine, data.model);
+      }
 
       adicionarMensagemBot(data.reply || 'Operação concluída com sucesso.', Boolean(data.denied));
       

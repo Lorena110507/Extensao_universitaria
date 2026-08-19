@@ -1,9 +1,14 @@
 import io
 import unittest
-import openpyxl
+try:
+    import openpyxl
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
 from app import app, init_db, generate_password_hash, sqlite3, DB_PATH
 
 
+@unittest.skipIf(not HAS_OPENPYXL, "openpyxl não instalado no ambiente")
 class TestExportsStyled(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

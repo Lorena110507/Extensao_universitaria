@@ -4448,6 +4448,25 @@ def ania_chat():
     return jsonify(resposta)
 
 
+@app.route("/api/ania/status", methods=["GET"])
+def ania_status():
+    if not g.get("user"):
+        return jsonify({"error": "unauthorized"}), 401
+
+    engine = get_ania_engine()
+    ollama_info = engine.ollama.get_status() if hasattr(engine, "ollama") and engine.ollama else {
+        "enabled": False,
+        "online": False,
+        "mode": "contingency_rules"
+    }
+    return jsonify({
+        "success": True,
+        "ollama": ollama_info,
+        "engine": "ollama_hybrid" if ollama_info.get("online") else "regras_locais",
+        "timestamp": agora().isoformat()
+    })
+
+
 # Fallback — mantém a navegação de pé para qualquer rota que ainda não exista.
 @app.route("/<pagina>")
 def em_construcao(pagina):

@@ -50,6 +50,12 @@ class TestAniaChatbot(unittest.TestCase):
             ("user-est-only", "operador_estoque", generate_password_hash("op123"), "ApenasEstoque", '["ApenasEstoque"]')
         )
 
+        # Limpa dados temporários de testes anteriores para garantir isolamento
+        cur.execute("DELETE FROM pedidos WHERE cliente = 'Roberto Silva'")
+        cur.execute("DELETE FROM materiais WHERE nome = 'Linha Encerada Marrom'")
+        cur.execute("DELETE FROM produtos WHERE nome = 'Mochila Escolar'")
+        cur.execute("DELETE FROM despesas WHERE descricao LIKE '%Frete%'")
+
         conn.commit()
         conn.close()
 
@@ -212,6 +218,25 @@ class TestAniaChatbot(unittest.TestCase):
             sobras = carregar_sobras()
             s = next((sob for sob in sobras if "Retalho Jeans Azul" in sob.get("descricao", "")), None)
             self.assertIsNotNone(s)
+
+    def test_criar_pedido_linguagem_natural_e_gtin_via_ania(self):
+        """Testa pedido falado/digitado com linguagem natural complexa e código GTIN."""
+        with app.test_client() as c:
+            c.post("/login", data={"username": "admin_ania", "password": "admin123"}, follow_redirects=True)
+            prompt = "adicione um pedido novo, Recebi um pedido novo de uma cliente chamada Mariana, ela pediu 1 bolsa do código gtin 7891234567890"
+            resp = c.post("/api/ania/chat", json={"message": prompt})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data.get("success"))
+            self.assertIn("Pedido Registrado com Sucesso", data["reply"])
+            self.assertIn("Mariana", data["reply"])
+
+            pedidos = carregar_pedidos()
+            mariana_pedidos = [ped for ped in pedidos if ped.get("cliente") == "Mariana"]
+            self.assertTrue(len(mariana_pedidos) > 0)
+            p = mariana_pedidos[-1]
+            self.assertEqual(p["cliente"], "Mariana")
+            self.assertEqual(p["quantidade"], 1)
 
 if __name__ == '__main__':
     unittest.main()
