@@ -3877,7 +3877,7 @@ def exportar_financeiro_pdf():
             # Footer text
             self.setFont("Helvetica-Oblique", 8)
             self.setFillColor(colors.HexColor("#7A6B63"))
-            self.drawString(15 * mm, 9 * mm, "Conectados pela Comunidade - Favela do Haiti, SP")
+            self.drawString(15 * mm, 9 * mm, "Conectados pela Comunidade - Comunidade do Haiti, SP")
             self.drawRightString(width - 15 * mm, 9 * mm, f"Pagina {self._pageNumber} de {page_count}")
             self.restoreState()
 
