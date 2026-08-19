@@ -3,7 +3,9 @@
 {% set subtitulo = produtos|length ~ " produto(s) cadastrado(s)" %}
 {% block conteudo %}
 
+{% if has_permission('produtos', 'create') %}
 <a href="{{ url_for('produto_novo') }}" class="btn-primary" style="margin-bottom:16px;">➕ Novo Produto</a>
+{% endif %}
 
 {% if not produtos %}
 <div class="card" style="padding:30px; text-align:center;">
@@ -71,16 +73,25 @@
     {% endif %}
 
     <!-- Ações e Gerenciamento de Peças Prontas -->
-    <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+    <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; align-items:center;">
+      {% if has_permission('pedidos', 'create') %}
       <a href="{{ url_for('pedido_novo') }}" class="btn-primary" style="flex:2; min-width:140px; font-size:15px !important; padding:10px 14px;">
         🧾 Fazer pedido
       </a>
-      <button type="button" class="btn-secondary" style="flex:1; min-width:120px; font-size:14px !important; padding:10px;" onclick="toggleAjuste('{{ p.id }}')">
+      {% endif %}
+      {% if has_permission('produtos', 'update') %}
+      <a href="{{ url_for('produto_editar', produto_id=p.id) }}" class="btn-secondary" style="flex:1.2; min-width:120px; font-size:14px !important; padding:10px 12px; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:6px;">
+        ✏️ Editar Receita
+      </a>
+      <button type="button" class="btn-secondary" style="flex:1; min-width:110px; font-size:14px !important; padding:10px;" onclick="toggleAjuste('{{ p.id }}')">
         🛍️ + Peça Pronta
       </button>
-      <form method="post" action="{{ url_for('produto_excluir', produto_id=p.id) }}" onsubmit="return confirm('Remover {{ p.nome }}?')">
-        <button class="btn-ghost" style="padding:10px 12px;" title="Excluir produto">🗑️</button>
+      {% endif %}
+      {% if has_permission('produtos', 'delete') %}
+      <form method="post" action="{{ url_for('produto_excluir', produto_id=p.id) }}" onsubmit="return confirm('Remover {{ p.nome }}?')" style="margin:0;">
+        <button type="submit" class="btn-ghost" style="padding:10px 12px;" title="Excluir produto">🗑️</button>
       </form>
+      {% endif %}
     </div>
 
     <!-- Acordeão de Ajuste de Estoque Pronto -->

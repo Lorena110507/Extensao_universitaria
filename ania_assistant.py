@@ -301,6 +301,12 @@ class AniaAssistant:
                 return self._resposta_negada(user_nome, roles_str, "produtos", "create", "cadastrar novas bolsas e produtos")
             return self._executar_cadastrar_produto_direto(params, prompt_orig)
 
+        # Editar / Alterar produto ou receita
+        if action in ("editar_produto", "alterar_receita", "editar_receita", "alterar_produto"):
+            if not self._tem_permissao(user, "produtos", "update"):
+                return self._resposta_negada(user_nome, roles_str, "produtos", "update", "alterar receitas e materiais de bolsas")
+            return self._executar_editar_produto(remover_acentos(params.get("produto") or prompt_orig), prompt_orig)
+
         # Ajuste estoque pronto
         if action == "ajustar_estoque_pronto":
             if not self._tem_permissao(user, "produtos", "update"):
@@ -1104,6 +1110,11 @@ class AniaAssistant:
             return self._executar_excluir_material(p_clean, prompt_orig)
 
         # ── 6. AÇÕES DE PRODUTOS & BOLSAS ─────────────────────────────────────
+        if any(w in p_clean for w in ["editar bolsa", "alterar bolsa", "editar produto", "alterar produto", "editar receita", "alterar receita", "mudar receita", "alterar materiais", "mudar materiais", "trocar materiais", "materiais da bolsa", "editar materiais", "alterar insumos"]):
+            if not self._tem_permissao(user, "produtos", "update"):
+                return self._resposta_negada(user_nome, roles_str, "produtos", "update", "alterar receitas e materiais de bolsas")
+            return self._executar_editar_produto(p_clean, prompt_orig)
+
         if any(w in p_clean for w in ["ajustar pecas prontas", "adicionar pecas prontas", "adicionar bolsa pronta", "remover peca pronta", "ajustar estoque pronto"]) or (("pecas prontas" in p_clean or "peca pronta" in p_clean or "estoque pronto" in p_clean) and any(w in p_clean for w in ["adicionar", "remover", "ajustar", "colocar", "tirar"])):
             if not self._tem_permissao(user, "produtos", "update"):
                 return self._resposta_negada(user_nome, roles_str, "produtos", "update", "ajustar o estoque de peças prontas")
@@ -1643,6 +1654,48 @@ class AniaAssistant:
             }
 
         return self._executar_ajuste_estoque_pronto_direto(produto_alvo["nome"], qtd, acao, user, prompt_orig)
+
+    def _executar_editar_produto(self, p_clean: str, prompt_orig: str) -> dict:
+        produtos = self._carregar_produtos()
+        if not produtos:
+            return {"reply": "Não há bolsas ou produtos cadastrados ainda.", "voice_text": "Não há produtos cadastrados."}
+
+        produto_alvo = None
+        for p in produtos:
+            p_clean_n = remover_acentos(p["nome"])
+            if p_clean_n in p_clean:
+                produto_alvo = p
+                break
+
+        if not produto_alvo:
+            for p in produtos:
+                p_clean_n = remover_acentos(p["nome"])
+                palavras = [w for w in p_clean_n.split() if len(w) >= 4]
+                if palavras and any(w in p_clean for w in palavras):
+                    produto_alvo = p
+                    break
+
+        if not produto_alvo:
+            return {
+                "reply": "De qual bolsa você deseja alterar os materiais ou a receita? Exemplo: *\"Alterar receita da Bolsa Tote Clássica\"*.\n\n" +
+                         "Você também pode escolher uma das opções abaixo:",
+                "voice_text": "Selecione a bolsa que deseja editar a receita de materiais.",
+                "suggestions": [f"Editar {p['nome']}" for p in produtos[:3]]
+            }
+
+        url_edit = f"/produtos/{produto_alvo['id']}/editar"
+        msg = (
+            f"🧵 **Editar Receita de {produto_alvo.get('emoji', '👜')} {produto_alvo['nome']}**\n\n"
+            f"Preço de venda atual: **R$ {float(produto_alvo.get('preco_venda') or 0):.2f}**\n"
+            f"Peças prontas em estoque: **{produto_alvo.get('estoque_pronto', 0)} unid.**\n\n"
+            f"Abrindo a tela de edição para você alterar as matérias-primas necessárias, quantidades da receita e simular a margem de lucro."
+        )
+        return {
+            "reply": msg,
+            "voice_text": f"Abrindo tela de edição da receita de {produto_alvo['nome']}.",
+            "action": {"type": "navigate", "url": url_edit},
+            "suggestions": ["Ver catálogo", "➕ Novo Produto"]
+        }
 
     def _executar_excluir_produto(self, p_clean: str, prompt_orig: str) -> dict:
         produtos = self._carregar_produtos()

@@ -227,7 +227,7 @@ SYSTEM_TABS = [
         "name": "Produtos & Receitas",
         "emoji": "👜",
         "desc": "Catálogo de produtos artesanais e receitas técnicas",
-        "actions": ["read", "create", "delete"],
+        "actions": ["read", "create", "update", "delete"],
         "route": "produtos",
     },
     {
@@ -2770,36 +2770,130 @@ def produto_novo():
 
         if not nome:
             flash("Informe o nome do produto.")
-            return redirect(url_for("produto_novo"))
+            return render_template("produto_form.html", produto=None, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=False)
 
         # must have at least one material in receita
         if not receita:
             flash("Não é possível criar um produto sem materiais na receita.")
-            return redirect(url_for("produto_novo"))
+            return render_template("produto_form.html", produto=None, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=False)
 
         # prevent duplicate product names (case-insensitive)
         produtos_lista = carregar_produtos()
-        if any(p.get('nome','').strip().lower() == nome.lower() for p in produtos_lista):
+        if any(p.get('nome', '').strip().lower() == nome.lower() for p in produtos_lista):
             flash('Já existe um produto com este nome.')
-            return redirect(url_for('produto_novo'))
+            return render_template("produto_form.html", produto=None, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=False)
 
         gtin = request.form.get("gtin", "").strip()
         estoque_pronto = int(parse_float_ptbr(request.form.get("estoque_pronto", 0)))
+        _id = str(uuid.uuid4())
+        now_iso = agora().isoformat()
 
-        produtos_lista.append({
-            "id": str(uuid.uuid4()),
-            "nome": nome,
-            "emoji": emoji,
-            "preco_venda": preco_venda,
-            "receita": receita,
-            "gtin": gtin,
-            "estoque_pronto": max(0, estoque_pronto),
-        })
-        salvar_produtos(produtos_lista)
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "INSERT INTO produtos (id,nome,emoji,preco_venda,receita,gtin,estoque_pronto,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (_id, nome, emoji, preco_venda, json.dumps(receita, ensure_ascii=False), gtin, max(0, estoque_pronto), now_iso, now_iso),
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                flash("Erro ao cadastrar produto: " + str(e))
+                return render_template("produto_form.html", produto=None, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=False)
+            finally:
+                conn.close()
+        else:
+            produtos_lista.append({
+                "id": _id,
+                "nome": nome,
+                "emoji": emoji,
+                "preco_venda": preco_venda,
+                "receita": receita,
+                "gtin": gtin,
+                "estoque_pronto": max(0, estoque_pronto),
+            })
+            salvar_produtos(produtos_lista)
+
         flash(f"{nome} cadastrado em Produtos & Receitas.")
         return redirect(url_for("produtos"))
 
-    return render_template("produto_form.html", materiais=materiais, emojis=EMOJIS_PRODUTO)
+    return render_template("produto_form.html", produto=None, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=False)
+
+
+@app.route("/produtos/<produto_id>/editar", methods=["GET", "POST"])
+@requires_permission('produtos', 'update')
+def produto_editar(produto_id):
+    materiais = carregar_materiais()
+    produtos_lista = carregar_produtos()
+    produto = next((prod for prod in produtos_lista if prod["id"] == produto_id), None)
+    if not produto:
+        flash("Produto não encontrado.")
+        return redirect(url_for("produtos"))
+
+    if request.method == "POST":
+        nome = request.form.get("nome", "").strip()
+        emoji = request.form.get("emoji", "👜").strip() or "👜"
+        preco_venda = parse_float_ptbr(request.form.get("preco_venda", 0))
+
+        mat_ids = request.form.getlist("material_id[]")
+        qtds = request.form.getlist("material_qtd[]")
+        receita = []
+        for mid, q in zip(mat_ids, qtds):
+            if not mid:
+                continue
+            qf = parse_float_ptbr(q)
+            if qf <= 0:
+                continue
+            receita.append({"material_id": mid, "quantidade": qf})
+
+        if not nome:
+            flash("Informe o nome do produto.")
+            return render_template("produto_form.html", produto=produto, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=True)
+
+        if not receita:
+            flash("Não é possível salvar um produto sem materiais na receita.")
+            return render_template("produto_form.html", produto=produto, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=True)
+
+        # Check duplicate name with other products (case-insensitive)
+        if any(p.get('nome', '').strip().lower() == nome.lower() and p.get('id') != produto_id for p in produtos_lista):
+            flash('Já existe outro produto com este nome.')
+            return render_template("produto_form.html", produto=produto, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=True)
+
+        gtin = request.form.get("gtin", "").strip()
+        estoque_pronto = int(parse_float_ptbr(request.form.get("estoque_pronto", 0)))
+        now_iso = agora().isoformat()
+
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "UPDATE produtos SET nome=?, emoji=?, preco_venda=?, receita=?, gtin=?, estoque_pronto=?, updated_at=? WHERE id=?",
+                    (nome, emoji, preco_venda, json.dumps(receita, ensure_ascii=False), gtin, max(0, estoque_pronto), now_iso, produto_id)
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                flash("Erro ao atualizar produto: " + str(e))
+                return render_template("produto_form.html", produto=produto, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=True)
+            finally:
+                conn.close()
+        else:
+            produto["nome"] = nome
+            produto["emoji"] = emoji
+            produto["preco_venda"] = preco_venda
+            produto["receita"] = receita
+            produto["gtin"] = gtin
+            produto["estoque_pronto"] = max(0, estoque_pronto)
+            salvar_produtos(produtos_lista)
+
+        flash(f"Produto '{nome}' e sua receita de materiais foram atualizados com sucesso.")
+        return redirect(url_for("produtos"))
+
+    return render_template("produto_form.html", produto=produto, materiais=materiais, emojis=EMOJIS_PRODUTO, is_edicao=True)
 
 
 @app.route("/produtos/<produto_id>/ajuste_estoque", methods=["POST"])

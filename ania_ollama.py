@@ -456,6 +456,17 @@ class OllamaEngine:
                 "_model": f"{self.model} (IA Local)"
             }
 
+        # Editar / Alterar produto ou receita de materiais
+        if any(w in p_clean for w in ["editar bolsa", "alterar bolsa", "editar produto", "alterar produto", "editar receita", "alterar receita", "mudar receita", "alterar materiais", "mudar materiais", "trocar materiais", "materiais da bolsa", "editar materiais"]):
+            prod_match = self._find_best_match(p_clean, produtos_nomes) or ultimo_produto_mencionado
+            return {
+                "action": "editar_produto",
+                "params": {"produto": prod_match or (produtos_nomes[0] if produtos_nomes else "Bolsa")},
+                "confidence": 0.93,
+                "_elapsed_ms": round((time.time() - start_t) * 1000, 1),
+                "_model": f"{self.model} (IA Local)"
+            }
+
         # Ajuste estoque pronto
         if any(w in p_clean for w in ["ajustar pecas prontas", "adicionar pecas prontas", "remover peca pronta", "ajustar estoque pronto"]) or (("pecas prontas" in p_clean or "peca pronta" in p_clean) and any(w in p_clean for w in ["adicionar", "remover", "colocar", "tirar"])):
             prod_match = self._find_best_match(p_clean, produtos_nomes) or ultimo_produto_mencionado
@@ -710,9 +721,10 @@ Seu objetivo é interpretar a mensagem do usuário (considerando o histórico da
 6. "mudar_status_pedido": Alterar status de pedido. Parâmetros: {{"cliente": "nome", "novo_status": "Pendente|Em produção|Concluído|Entregue|Cancelado"}}
 7. "excluir_pedido": Excluir pedido. Parâmetros: {{"cliente": "nome"}}
 8. "cadastrar_produto": Nova bolsa/produto. Parâmetros: {{"nome": "string", "preco_venda": float, "estoque_pronto": int, "emoji": "string"}}
-9. "ajustar_estoque_pronto": Ajustar pronta-entrega. Parâmetros: {{"produto": "nome", "quantidade": int, "operacao": "adicionar|remover"}}
-10. "excluir_produto": Excluir bolsa. Parâmetros: {{"produto": "nome"}}
-11. "cadastrar_sobra": Registrar retalho/sobra. Parâmetros: {{"descricao": "string", "quantidade": float, "unidade": "string"}}
+9. "editar_produto": Alterar materiais ou receita de uma bolsa/produto. Parâmetros: {{"produto": "nome"}}
+10. "ajustar_estoque_pronto": Ajustar pronta-entrega. Parâmetros: {{"produto": "nome", "quantidade": int, "operacao": "adicionar|remover"}}
+11. "excluir_produto": Excluir bolsa. Parâmetros: {{"produto": "nome"}}
+12. "cadastrar_sobra": Registrar retalho/sobra. Parâmetros: {{"descricao": "string", "quantidade": float, "unidade": "string"}}
 12. "acao_sobra": Atualizar retalho. Parâmetros: {{"descricao": "string", "acao": "Reaproveitado|Descartado"}}
 13. "cadastrar_despesa": Nova despesa financeira. Parâmetros: {{"descricao": "string", "valor": float, "categoria": "string"}}
 14. "excluir_despesa": Excluir despesa. Parâmetros: {{"descricao": "string"}}
