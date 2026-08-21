@@ -1049,7 +1049,27 @@ class AniaAssistant:
         if any(w in p_clean for w in ["minhas permissoes", "meu perfil", "meu papel", "o que posso fazer", "meus acessos", "minha conta"]):
             return self._responder_minhas_permissoes(user, user_nome, roles)
 
-        # ── 3. RELATÓRIOS & EXPORTAÇÕES (PDF, EXCEL, JSON) ───────────────────
+        # ── 3. RELATÓRIOS & EXPORTAÇÕES (PDF, EXCEL, JSON, E-MAIL) ───────────
+        if any(w in p_clean for w in ["enviar relatorio por email", "mandar relatorio por email", "disparar relatorio por email", "relatorio por email"]):
+            if not self._tem_permissao(user, "relatorios", "read"):
+                return self._resposta_negada(user_nome, roles_str, "relatorios", "read", "enviar relatórios por e-mail")
+            return {
+                "reply": "✉️ **Envio de Relatórios por E-mail**:\n\nVocê pode disparar relatórios em **PDF** ou **Planilhas Excel** para colaboradores cadastrados ou outros e-mails diretamente pela central de envio.\n\nClique no botão abaixo para abrir a tela de envio:",
+                "voice_text": "Você pode disparar relatórios por e-mail na tela de envio de relatórios.",
+                "action": {"type": "navigate", "url": "/relatorios/enviar-email"},
+                "suggestions": ["✉️ Abrir Envio de E-mail", "⏰ Ver Agendamentos", "📊 Ver Alertas"]
+            }
+
+        if any(w in p_clean for w in ["programar envio", "agendar relatorio", "agendamento de relatorio", "envios regulares", "agendar email"]):
+            if not self._tem_permissao(user, "relatorios", "read"):
+                return self._resposta_negada(user_nome, roles_str, "relatorios", "read", "gerenciar agendamentos de e-mail")
+            return {
+                "reply": "⏰ **Programação de Envios Regulares**:\n\nVocê pode programar envios automáticos diários, semanais ou mensais de relatórios para os destinatários desejados.\n\nClique no botão abaixo para gerenciar os agendamentos:",
+                "voice_text": "Você pode configurar envios regulares automáticos na tela de agendamentos.",
+                "action": {"type": "navigate", "url": "/relatorios/agendamentos"},
+                "suggestions": ["➕ Novo Agendamento", "📜 Histórico de E-mails", "📊 Ver Alertas"]
+            }
+
         if any(w in p_clean for w in ["relatorio em pdf", "enviar relatorio", "gerar pdf", "baixar pdf", "exportar pdf", "pdf do financeiro", "relatorio financeiro pdf"]):
             if not self._tem_permissao(user, "relatorios", "read"):
                 return self._resposta_negada(user_nome, roles_str, "relatorios", "read", "gerar e baixar relatórios em PDF")

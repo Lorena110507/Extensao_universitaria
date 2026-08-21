@@ -4,6 +4,15 @@ import re
 import uuid
 import secrets
 import sqlite3
+import base64
+import threading
+import time
+import urllib.parse
+import requests
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, make_response, session, g, send_from_directory, jsonify
 from functools import wraps
@@ -535,7 +544,18 @@ def init_db():
         """
     )
     # Migrations for tables
-    for col, ctype in [('role', 'TEXT'), ('session_version', 'INTEGER DEFAULT 0'), ('nome', 'TEXT'), ('avatar', 'TEXT'), ('roles', 'TEXT')]:
+    for col, ctype in [
+        ('role', 'TEXT'),
+        ('session_version', 'INTEGER DEFAULT 0'),
+        ('nome', 'TEXT'),
+        ('avatar', 'TEXT'),
+        ('roles', 'TEXT'),
+        ('email', 'TEXT'),
+        ('google_id', 'TEXT'),
+        ('google_refresh_token', 'TEXT'),
+        ('google_access_token', 'TEXT'),
+        ('google_token_expiry', 'TEXT')
+    ]:
         try:
             cur.execute(f"ALTER TABLE usuarios ADD COLUMN {col} {ctype}")
         except Exception:
@@ -550,6 +570,12 @@ def init_db():
     for col, ctype in [('usou_estoque_pronto', 'INTEGER DEFAULT 0')]:
         try:
             cur.execute(f"ALTER TABLE pedidos ADD COLUMN {col} {ctype}")
+        except Exception:
+            pass
+
+    for col, ctype in [('usuario_remetente_id', 'TEXT')]:
+        try:
+            cur.execute(f"ALTER TABLE agendamentos_email ADD COLUMN {col} {ctype}")
         except Exception:
             pass
 
@@ -612,6 +638,80 @@ def init_db():
             observacoes TEXT,
             criado_por TEXT,
             created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+
+    # agendamentos_email table: stores automated email delivery schedules
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agendamentos_email (
+            id TEXT PRIMARY KEY,
+            titulo TEXT NOT NULL,
+            tipo_relatorio TEXT NOT NULL,
+            frequencia TEXT NOT NULL,
+            hora_envio TEXT NOT NULL,
+            dia_semana INTEGER DEFAULT 0,
+            dia_mes INTEGER DEFAULT 1,
+            destinatarios TEXT NOT NULL,
+            assunto TEXT,
+            mensagem TEXT,
+            ativo INTEGER DEFAULT 1,
+            ultimo_envio TEXT,
+            proximo_envio TEXT,
+            criado_por TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+
+    # historico_envios_email table: stores logs of sent emails
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS historico_envios_email (
+            id TEXT PRIMARY KEY,
+            agendamento_id TEXT,
+            titulo TEXT,
+            tipo_relatorio TEXT,
+            destinatarios TEXT,
+            status TEXT,
+            mensagem_status TEXT,
+            enviado_por TEXT,
+            created_at TEXT
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_historico_envios_created ON historico_envios_email(created_at)")
+
+    # configuracoes_email table: stores SMTP configuration
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS configuracoes_email (
+            id TEXT PRIMARY KEY,
+            smtp_host TEXT,
+            smtp_port INTEGER DEFAULT 587,
+            smtp_user TEXT,
+            smtp_pass TEXT,
+            smtp_from TEXT,
+            smtp_security TEXT DEFAULT 'tls',
+            modo_simulacao INTEGER DEFAULT 0,
+            updated_at TEXT
+        )
+        """
+    )
+
+    # configuracoes_sso table: stores Google OAuth credentials and configuration
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS configuracoes_sso (
+            id TEXT PRIMARY KEY,
+            google_client_id TEXT,
+            google_client_secret TEXT,
+            ativo INTEGER DEFAULT 0,
+            auto_cadastro INTEGER DEFAULT 1,
+            papel_padrao TEXT DEFAULT 'Producao',
             updated_at TEXT
         )
         """
@@ -781,13 +881,14 @@ def carregar_usuarios():
             "username": r["username"],
             "nome": r["nome"] if ("nome" in r.keys() and r["nome"]) else "",
             "avatar": r["avatar"] if ("avatar" in r.keys() and r["avatar"]) else "",
+            "email": r["email"] if ("email" in r.keys() and r["email"]) else "",
             "password_hash": r["password_hash"],
             "role": r["role"] if r["role"] is not None else "",
             "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
             "created_at": r["created_at"],
             "session_version": r["session_version"] if ("session_version" in r.keys()) else 0,
         } for r in rows]
-    # legacy JSON fallback: each user dict may include role, nome, avatar
+    # legacy JSON fallback: each user dict may include role, nome, avatar, email
     users = carregar_json("usuarios.json", seed=[])
     for u in users:
         if "session_version" not in u:
@@ -796,6 +897,8 @@ def carregar_usuarios():
             u["nome"] = ""
         if "avatar" not in u:
             u["avatar"] = ""
+        if "email" not in u:
+            u["email"] = ""
         if "roles" not in u:
             u["roles"] = ""
     return users
@@ -813,8 +916,8 @@ def salvar_usuarios(usuarios):
             for u in usuarios:
                 _id = u.get("id") or str(uuid.uuid4())
                 cur.execute(
-                    "INSERT INTO usuarios (id, username, password_hash, role, nome, avatar, roles, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (_id, u.get("username"), u.get("password_hash"), u.get("role") or "", u.get("nome") or "", u.get("avatar") or "", serializar_roles(u.get("roles") or u.get("role") or ""), u.get("created_at") or now),
+                    "INSERT INTO usuarios (id, username, password_hash, role, nome, avatar, roles, email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (_id, u.get("username"), u.get("password_hash"), u.get("role") or "", u.get("nome") or "", u.get("avatar") or "", serializar_roles(u.get("roles") or u.get("role") or ""), u.get("email") or "", u.get("created_at") or now),
                 )
             conn.commit()
         except Exception:
@@ -842,6 +945,7 @@ def encontrar_usuario_por_username(username):
             "username": r["username"],
             "nome": r["nome"] if ("nome" in r.keys() and r["nome"]) else "",
             "avatar": r["avatar"] if ("avatar" in r.keys() and r["avatar"]) else "",
+            "email": r["email"] if ("email" in r.keys() and r["email"]) else "",
             "password_hash": r["password_hash"],
             "role": r["role"] if r["role"] is not None else "",
             "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
@@ -854,6 +958,249 @@ def encontrar_usuario_por_username(username):
         if u.get("username") == username:
             return u
     return None
+
+
+def encontrar_usuario_por_id(user_id):
+    if not user_id:
+        return None
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM usuarios WHERE id=?", (str(user_id),))
+        r = cur.fetchone()
+        conn.close()
+        if not r:
+            return None
+        return {
+            "id": r["id"],
+            "username": r["username"],
+            "nome": r["nome"] if ("nome" in r.keys() and r["nome"]) else "",
+            "avatar": r["avatar"] if ("avatar" in r.keys() and r["avatar"]) else "",
+            "email": r["email"] if ("email" in r.keys() and r["email"]) else "",
+            "google_id": r["google_id"] if ("google_id" in r.keys() and r["google_id"]) else "",
+            "google_refresh_token": r["google_refresh_token"] if ("google_refresh_token" in r.keys() and r["google_refresh_token"]) else "",
+            "google_access_token": r["google_access_token"] if ("google_access_token" in r.keys() and r["google_access_token"]) else "",
+            "google_token_expiry": r["google_token_expiry"] if ("google_token_expiry" in r.keys() and r["google_token_expiry"]) else "",
+            "password_hash": r["password_hash"],
+            "role": r["role"] if r["role"] is not None else "",
+            "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
+            "created_at": r["created_at"],
+            "session_version": r["session_version"] if ("session_version" in r.keys()) else 0,
+        }
+
+    usuarios = carregar_usuarios()
+    return next((u for u in usuarios if str(u.get("id")) == str(user_id)), None)
+
+
+def encontrar_usuario_por_email(email):
+    if not email:
+        return None
+    email_clean = email.strip().lower()
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM usuarios WHERE LOWER(email)=?", (email_clean,))
+        r = cur.fetchone()
+        conn.close()
+        if not r:
+            return None
+        return {
+            "id": r["id"],
+            "username": r["username"],
+            "nome": r["nome"] if ("nome" in r.keys() and r["nome"]) else "",
+            "avatar": r["avatar"] if ("avatar" in r.keys() and r["avatar"]) else "",
+            "email": r["email"] if ("email" in r.keys() and r["email"]) else "",
+            "google_id": r["google_id"] if ("google_id" in r.keys() and r["google_id"]) else "",
+            "google_refresh_token": r["google_refresh_token"] if ("google_refresh_token" in r.keys() and r["google_refresh_token"]) else "",
+            "google_access_token": r["google_access_token"] if ("google_access_token" in r.keys() and r["google_access_token"]) else "",
+            "google_token_expiry": r["google_token_expiry"] if ("google_token_expiry" in r.keys() and r["google_token_expiry"]) else "",
+            "password_hash": r["password_hash"],
+            "role": r["role"] if r["role"] is not None else "",
+            "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
+            "created_at": r["created_at"],
+            "session_version": r["session_version"] if ("session_version" in r.keys()) else 0,
+        }
+
+    usuarios = carregar_usuarios()
+    for u in usuarios:
+        if (u.get("email") or "").strip().lower() == email_clean:
+            return u
+    return None
+
+
+def encontrar_usuario_por_google_id(google_id):
+    if not google_id:
+        return None
+    gid_str = str(google_id).strip()
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM usuarios WHERE google_id=?", (gid_str,))
+        r = cur.fetchone()
+        conn.close()
+        if not r:
+            return None
+        return {
+            "id": r["id"],
+            "username": r["username"],
+            "nome": r["nome"] if ("nome" in r.keys() and r["nome"]) else "",
+            "avatar": r["avatar"] if ("avatar" in r.keys() and r["avatar"]) else "",
+            "email": r["email"] if ("email" in r.keys() and r["email"]) else "",
+            "google_id": r["google_id"] if ("google_id" in r.keys() and r["google_id"]) else "",
+            "google_refresh_token": r["google_refresh_token"] if ("google_refresh_token" in r.keys() and r["google_refresh_token"]) else "",
+            "google_access_token": r["google_access_token"] if ("google_access_token" in r.keys() and r["google_access_token"]) else "",
+            "google_token_expiry": r["google_token_expiry"] if ("google_token_expiry" in r.keys() and r["google_token_expiry"]) else "",
+            "password_hash": r["password_hash"],
+            "role": r["role"] if r["role"] is not None else "",
+            "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
+            "created_at": r["created_at"],
+            "session_version": r["session_version"] if ("session_version" in r.keys()) else 0,
+        }
+
+    usuarios = carregar_usuarios()
+    for u in usuarios:
+        if str(u.get("google_id") or "").strip() == gid_str:
+            return u
+    return None
+
+
+def obter_access_token_gmail_usuario(user_id_ou_dict):
+    """
+    Recupera um access_token válido para a API do Gmail do usuário.
+    Se o access_token estiver expirado mas houver refresh_token, renova automaticamente no Google.
+    """
+    if isinstance(user_id_ou_dict, dict):
+        user = user_id_ou_dict
+    else:
+        user = encontrar_usuario_por_id(user_id_ou_dict)
+
+    if not user:
+        return {"success": False, "reason": "user_not_found"}
+
+    user_id = user.get("id")
+    email = user.get("email") or user.get("username")
+    nome = user.get("nome") or user.get("username")
+    access_token = user.get("google_access_token")
+    refresh_token = user.get("google_refresh_token")
+    expiry_str = user.get("google_token_expiry")
+
+    # Verifica se o access_token atual ainda é válido (com margem de 60s)
+    if access_token and expiry_str:
+        try:
+            exp_dt = datetime.fromisoformat(expiry_str)
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            if exp_dt > datetime.now(timezone.utc) + timedelta(seconds=60):
+                return {"success": True, "access_token": access_token, "email": email, "nome": nome}
+        except Exception:
+            pass
+
+    # Se não temos refresh_token, não é possível renovar
+    if not refresh_token:
+        return {"success": False, "reason": "no_refresh_token", "email": email, "nome": nome}
+
+    # Renova token usando refresh_token
+    cfg = obter_configuracoes_sso()
+    client_id = cfg.get("google_client_id")
+    client_secret = cfg.get("google_client_secret")
+
+    if not client_id or not client_secret:
+        return {"success": False, "reason": "sso_not_configured", "email": email, "nome": nome}
+
+    try:
+        token_resp = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token"
+            },
+            timeout=15
+        )
+        if token_resp.status_code == 200:
+            token_data = token_resp.json()
+            new_access_token = token_data.get("access_token")
+            expires_in = token_data.get("expires_in", 3600)
+            new_expiry = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+
+            if USE_SQLITE and user_id:
+                conn = sqlite3.connect(DB_PATH)
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE usuarios SET google_access_token=?, google_token_expiry=? WHERE id=?",
+                    (new_access_token, new_expiry, user_id)
+                )
+                conn.commit()
+                conn.close()
+
+            return {"success": True, "access_token": new_access_token, "email": email, "nome": nome}
+        else:
+            return {"success": False, "reason": f"refresh_failed: {token_resp.text}", "email": email, "nome": nome}
+    except Exception as e:
+        return {"success": False, "reason": str(e), "email": email, "nome": nome}
+
+
+def obter_configuracoes_sso():
+    """Retorna as configurações atuais do Google SSO."""
+    default_cfg = {
+        "google_client_id": os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
+        "google_client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", "").strip(),
+        "ativo": 1 if os.environ.get("GOOGLE_SSO_ATIVO") == "1" or os.environ.get("GOOGLE_CLIENT_ID") else 0,
+        "auto_cadastro": 1 if os.environ.get("GOOGLE_AUTO_CADASTRO", "1") == "1" else 0,
+        "papel_padrao": os.environ.get("GOOGLE_PAPEL_PADRAO", "Producao").strip(),
+    }
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM configuracoes_sso LIMIT 1")
+        r = cur.fetchone()
+        conn.close()
+        if r:
+            return {
+                "google_client_id": r["google_client_id"] or default_cfg["google_client_id"],
+                "google_client_secret": r["google_client_secret"] or default_cfg["google_client_secret"],
+                "ativo": int(r["ativo"]) if r["ativo"] is not None else default_cfg["ativo"],
+                "auto_cadastro": int(r["auto_cadastro"]) if r["auto_cadastro"] is not None else default_cfg["auto_cadastro"],
+                "papel_padrao": r["papel_padrao"] or default_cfg["papel_padrao"],
+            }
+    return default_cfg
+
+
+def salvar_configuracoes_sso(cfg):
+    """Persiste as configurações de Google SSO no SQLite."""
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        now = agora().isoformat()
+        cur.execute("DELETE FROM configuracoes_sso")
+        cur.execute(
+            """
+            INSERT INTO configuracoes_sso 
+            (id, google_client_id, google_client_secret, ativo, auto_cadastro, papel_padrao, updated_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "default",
+                cfg.get("google_client_id", "").strip(),
+                cfg.get("google_client_secret", "").strip(),
+                int(cfg.get("ativo", 0)),
+                int(cfg.get("auto_cadastro", 1)),
+                cfg.get("papel_padrao", "Producao").strip(),
+                now
+            )
+        )
+        conn.commit()
+        conn.close()
 
 
 def seed_roles_se_necessario(conn=None):
@@ -1108,7 +1455,7 @@ if os.environ.get('RECREATE_DB', '').lower() in ('1','true','yes'):
 @app.before_request
 def require_login():
     # Allow these endpoints unauthenticated
-    allowed = {"login", "static", "em_construcao", "uploaded_file"}
+    allowed = {"login", "static", "em_construcao", "uploaded_file", "auth_google_login", "auth_google_callback"}
     if request.endpoint is None:
         return
     if request.endpoint in allowed:
@@ -1132,6 +1479,8 @@ def require_login():
                     "username": r["username"],
                     "nome": r["nome"] if ("nome" in r.keys() and r["nome"]) else "",
                     "avatar": r["avatar"] if ("avatar" in r.keys() and r["avatar"]) else "",
+                    "email": r["email"] if ("email" in r.keys() and r["email"]) else "",
+                    "google_id": r["google_id"] if ("google_id" in r.keys() and r["google_id"]) else "",
                     "role": r["role"] if r["role"] is not None else "",
                     "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
                     "session_version": r["session_version"] if ("session_version" in r.keys()) else 0,
@@ -1161,6 +1510,7 @@ def require_login():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    config_sso = obter_configuracoes_sso()
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         senha = request.form.get("password", "")
@@ -1185,7 +1535,7 @@ def login():
                     return redirect(nxt)
         flash("Usuário ou senha inválidos.")
         return redirect(url_for("login"))
-    return render_template("login.html")
+    return render_template("login.html", config_sso=config_sso)
 
 
 @app.route("/logout")
@@ -1193,6 +1543,211 @@ def logout():
     session.pop("user_id", None)
     flash("Desconectado.")
     return redirect(url_for("login"))
+
+
+# ── Google SSO (OAuth 2.0 / OpenID Connect) ──────────────────────────────────
+
+@app.route("/auth/google/login")
+def auth_google_login():
+    cfg = obter_configuracoes_sso()
+    client_id = cfg.get("google_client_id")
+    if not client_id or not cfg.get("ativo"):
+        flash("O login com Google não está configurado ou está desativado no momento.")
+        return redirect(url_for("login"))
+
+    # State anti-CSRF token
+    state = secrets.token_urlsafe(32)
+    session["oauth_google_state"] = state
+
+    if request.args.get("next"):
+        session["oauth_next"] = request.args.get("next")
+
+    redirect_uri = url_for("auth_google_callback", _external=True)
+
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile https://www.googleapis.com/auth/gmail.send",
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state
+    }
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+    return redirect(auth_url)
+
+
+@app.route("/auth/google/callback")
+def auth_google_callback():
+    error = request.args.get("error")
+    if error:
+        flash(f"Autorização cancelada ou recusada pelo Google ({error}).")
+        return redirect(url_for("login"))
+
+    state_recebido = request.args.get("state")
+    state_esperado = session.pop("oauth_google_state", None)
+    if not state_recebido or state_recebido != state_esperado:
+        flash("Falha de validação de segurança (state token inválido). Tente novamente.")
+        return redirect(url_for("login"))
+
+    code = request.args.get("code")
+    if not code:
+        flash("Código de autorização não fornecido pelo Google.")
+        return redirect(url_for("login"))
+
+    cfg = obter_configuracoes_sso()
+    client_id = cfg.get("google_client_id")
+    client_secret = cfg.get("google_client_secret")
+    redirect_uri = url_for("auth_google_callback", _external=True)
+
+    # Troca code por access token
+    try:
+        token_resp = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code"
+            },
+            timeout=15
+        )
+        if token_resp.status_code != 200:
+            flash("Erro ao autenticar com os servidores do Google.")
+            return redirect(url_for("login"))
+        tokens = token_resp.json()
+        access_token = tokens.get("access_token")
+        refresh_token = tokens.get("refresh_token") or ""
+        expires_in = tokens.get("expires_in", 3600)
+        token_expiry = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+
+        # Busca perfil do usuário
+        userinfo_resp = requests.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=15
+        )
+        if userinfo_resp.status_code != 200:
+            flash("Não foi possível obter os dados do seu perfil Google.")
+            return redirect(url_for("login"))
+        google_profile = userinfo_resp.json()
+    except Exception as e:
+        flash(f"Erro de conexão com o Google: {e}")
+        return redirect(url_for("login"))
+
+    google_id = google_profile.get("sub")
+    email = (google_profile.get("email") or "").strip().lower()
+    nome = google_profile.get("name") or google_profile.get("given_name") or email.split("@")[0]
+    avatar_url = google_profile.get("picture") or ""
+
+    if not email:
+        flash("A conta Google não forneceu um endereço de e-mail válido.")
+        return redirect(url_for("login"))
+
+    # 1. Busca por Google ID ou por Email
+    user = encontrar_usuario_por_google_id(google_id)
+    if not user:
+        user = encontrar_usuario_por_email(email)
+
+    if user:
+        # Usuário existente: vincula google_id e tokens, atualiza nome/avatar se vazios
+        user_id = user["id"]
+        if USE_SQLITE:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE usuarios 
+                SET google_id=?, 
+                    google_access_token=?, 
+                    google_token_expiry=?, 
+                    google_refresh_token=COALESCE(NULLIF(?, ''), google_refresh_token),
+                    nome=COALESCE(NULLIF(nome, ''), ?), 
+                    avatar=COALESCE(NULLIF(avatar, ''), ?) 
+                WHERE id=?
+                """,
+                (google_id, access_token, token_expiry, refresh_token, nome, avatar_url, user_id)
+            )
+            conn.commit()
+            conn.close()
+    else:
+        # Novo usuário
+        if not cfg.get("auto_cadastro"):
+            flash(f"Acesso não autorizado para o e-mail '{email}'. Contate o administrador do sistema.")
+            return redirect(url_for("login"))
+
+        papel = cfg.get("papel_padrao", "Producao")
+        user_id = str(uuid.uuid4())
+        base_username = email.split("@")[0].lower()
+        base_username = re.sub(r"[^a-z0-9_.]", "", base_username) or "usuario"
+        username_final = base_username
+
+        # Garante unicidade do username
+        suffix = 1
+        while encontrar_usuario_por_username(username_final):
+            username_final = f"{base_username}{suffix}"
+            suffix += 1
+
+        now = agora().isoformat()
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO usuarios 
+                (id, username, password_hash, role, roles, nome, email, google_id, google_refresh_token, google_access_token, google_token_expiry, avatar, session_version, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                """,
+                (user_id, username_final, generate_password_hash(secrets.token_hex(16)), papel, serializar_roles([papel]), nome, email, google_id, refresh_token, access_token, token_expiry, avatar_url, now)
+            )
+            conn.commit()
+            conn.close()
+        user = {"id": user_id, "username": username_final, "session_version": 0}
+
+    # Inicia a sessão
+    session["user_id"] = user["id"]
+    session["session_version"] = user.get("session_version", 0)
+
+    # Auditoria
+    try:
+        if USE_SQLITE:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), user["id"], user.get("username"), user["id"], "login_google_sso", f"email={email};google_id={google_id}", agora().isoformat())
+            )
+            conn.commit()
+            conn.close()
+    except Exception:
+        pass
+
+    flash(f"Bem-vindo(a), {nome}! Autenticado com sucesso via Google.")
+    nxt = session.pop("oauth_next", None) or url_for("home")
+    return redirect(nxt)
+
+
+@app.route("/configuracoes/sso", methods=["GET", "POST"])
+@requires_permission("usuarios", "create")
+def configuracoes_sso_view():
+    papeis = carregar_papeis()
+    if request.method == "POST":
+        cfg = {
+            "google_client_id": request.form.get("google_client_id", "").strip(),
+            "google_client_secret": request.form.get("google_client_secret", "").strip(),
+            "ativo": 1 if request.form.get("ativo") == "1" else 0,
+            "auto_cadastro": 1 if request.form.get("auto_cadastro") == "1" else 0,
+            "papel_padrao": request.form.get("papel_padrao", "Producao").strip(),
+        }
+        salvar_configuracoes_sso(cfg)
+        flash("Configurações do Google SSO atualizadas com sucesso!")
+        return redirect(url_for("configuracoes_sso_view"))
+
+    config_sso = obter_configuracoes_sso()
+    redirect_uri = url_for("auth_google_callback", _external=True)
+    return render_template("configuracao_sso.html", config_sso=config_sso, papeis=papeis, redirect_uri=redirect_uri)
 
 
 # Minha conta (Editar Perfil, Nome, Foto e Trocar Senha)
@@ -1213,10 +1768,15 @@ def minha_conta():
 
     if request.method == 'POST':
         nome = request.form.get('nome', '').strip()
+        email = request.form.get('email', '').strip().lower()
         remover_avatar = (request.form.get('remover_avatar') == '1')
         current_pwd = request.form.get('current_password', '')
         new_pwd = request.form.get('new_password', '')
         new_pwd2 = request.form.get('new_password2', '')
+
+        if email and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            flash('Por favor, informe um endereço de e-mail válido.')
+            return render_template('minha_conta.html', user=user, user_role_info=user_role_info, system_tabs=SYSTEM_TABS)
 
         # 1. Tratar alteração de senha (se algum campo de nova senha for preenchido)
         password_changed = False
@@ -1282,14 +1842,14 @@ def minha_conta():
             cur = conn.cursor()
             try:
                 if password_changed:
-                    cur.execute("UPDATE usuarios SET nome=?, avatar=?, password_hash=? WHERE id=?",
-                                (nome, new_avatar, new_hash, user_id))
+                    cur.execute("UPDATE usuarios SET nome=?, email=?, avatar=?, password_hash=? WHERE id=?",
+                                (nome, email, new_avatar, new_hash, user_id))
                 else:
-                    cur.execute("UPDATE usuarios SET nome=?, avatar=? WHERE id=?",
-                                (nome, new_avatar, user_id))
+                    cur.execute("UPDATE usuarios SET nome=?, email=?, avatar=? WHERE id=?",
+                                (nome, email, new_avatar, user_id))
                 conn.commit()
                 try:
-                    details = f"nome={nome};avatar={'yes' if new_avatar else 'no'};password_changed={'yes' if password_changed else 'no'}"
+                    details = f"nome={nome};email={email};avatar={'yes' if new_avatar else 'no'};password_changed={'yes' if password_changed else 'no'}"
                     cur.execute("INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?,?,?,?,?,?,?)",
                                 (str(uuid.uuid4()), user_id, user.get('username'), user_id, 'update_profile', details, agora().isoformat()))
                     conn.commit()
@@ -1306,12 +1866,14 @@ def minha_conta():
             for u in usuarios:
                 if u.get('id') == user_id:
                     u['nome'] = nome
+                    u['email'] = email
                     u['avatar'] = new_avatar
                     if password_changed:
                         u['password_hash'] = new_hash
             salvar_usuarios(usuarios)
 
         g.user['nome'] = nome
+        g.user['email'] = email
         g.user['avatar'] = new_avatar
 
         if password_changed:
@@ -1340,6 +1902,7 @@ def usuarios_novo():
 
     if request.method == "POST":
         username = request.form.get("username", "").strip()
+        email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         password2 = request.form.get("password2", "")
         roles = [r for r in request.form.getlist("roles") if r.strip()]
@@ -1351,6 +1914,9 @@ def usuarios_novo():
 
         if not username or not password:
             flash("Nome de usuário e senha são obrigatórios.")
+            return render_template("usuario_form.html", papeis=papeis)
+        if email and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            flash("Por favor, informe um endereço de e-mail válido.")
             return render_template("usuario_form.html", papeis=papeis)
         if password != password2:
             flash("As senhas não conferem.")
@@ -1370,14 +1936,14 @@ def usuarios_novo():
             cur = conn.cursor()
             try:
                 cur.execute(
-                    "INSERT INTO usuarios (id, username, password_hash, role, roles, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (uid, username, password_hash, role, serializar_roles(roles), now),
+                    "INSERT INTO usuarios (id, username, password_hash, role, roles, email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (uid, username, password_hash, role, serializar_roles(roles), email, now),
                 )
                 conn.commit()
                 try:
                     cur.execute(
                         "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, uid, "create_user", f"roles={roles}", agora().isoformat()),
+                        (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, uid, "create_user", f"roles={roles};email={email}", agora().isoformat()),
                     )
                     conn.commit()
                 except Exception:
@@ -1393,6 +1959,7 @@ def usuarios_novo():
             usuarios_lista.append({
                 "id": uid,
                 "username": username,
+                "email": email,
                 "password_hash": password_hash,
                 "role": role,
                 "roles": roles,
@@ -1421,7 +1988,13 @@ def usuarios_editar(user_id):
         if not r:
             flash("Usuário não encontrado.")
             return redirect(url_for("usuarios"))
-        usuario = {"id": r["id"], "username": r["username"], "role": r["role"] or "", "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else ""}
+        usuario = {
+            "id": r["id"],
+            "username": r["username"],
+            "role": r["role"] or "",
+            "roles": r["roles"] if ("roles" in r.keys() and r["roles"]) else "",
+            "email": r["email"] if ("email" in r.keys() and r["email"]) else "",
+        }
     else:
         usuarios_lista = carregar_usuarios()
         usuario = next((u for u in usuarios_lista if u.get("id") == user_id), None)
@@ -1430,6 +2003,7 @@ def usuarios_editar(user_id):
             return redirect(url_for("usuarios"))
 
     if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
         roles = [x for x in request.form.getlist("roles") if x.strip()]
         if not roles:
             legado = request.form.get("role", "").strip()
@@ -1440,6 +2014,10 @@ def usuarios_editar(user_id):
         old_roles = usuario_roles_lista(usuario)
         roles_changed = (set(roles) != set(old_roles))
 
+        if email and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            flash("Por favor, informe um endereço de e-mail válido.")
+            return render_template("usuario_edit.html", usuario=usuario, papeis=papeis, usuario_roles=usuario_roles_lista(usuario))
+
         if USE_SQLITE:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
@@ -1447,25 +2025,25 @@ def usuarios_editar(user_id):
                 if new_pwd:
                     if roles_changed:
                         cur.execute(
-                            "UPDATE usuarios SET role=?, roles=?, password_hash=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
-                            (role, serializar_roles(roles), generate_password_hash(new_pwd), user_id),
+                            "UPDATE usuarios SET role=?, roles=?, email=?, password_hash=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
+                            (role, serializar_roles(roles), email, generate_password_hash(new_pwd), user_id),
                         )
                     else:
                         cur.execute(
-                            "UPDATE usuarios SET role=?, roles=?, password_hash=? WHERE id=?",
-                            (role, serializar_roles(roles), generate_password_hash(new_pwd), user_id),
+                            "UPDATE usuarios SET role=?, roles=?, email=?, password_hash=? WHERE id=?",
+                            (role, serializar_roles(roles), email, generate_password_hash(new_pwd), user_id),
                         )
                 else:
                     if roles_changed:
                         cur.execute(
-                            "UPDATE usuarios SET role=?, roles=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
-                            (role, serializar_roles(roles), user_id),
+                            "UPDATE usuarios SET role=?, roles=?, email=?, session_version=COALESCE(session_version,0)+1 WHERE id=?",
+                            (role, serializar_roles(roles), email, user_id),
                         )
                     else:
-                        cur.execute("UPDATE usuarios SET role=?, roles=? WHERE id=?", (role, serializar_roles(roles), user_id))
+                        cur.execute("UPDATE usuarios SET role=?, roles=?, email=? WHERE id=?", (role, serializar_roles(roles), email, user_id))
                 conn.commit()
                 try:
-                    details = f"roles={roles};password_changed={'yes' if new_pwd else 'no'}"
+                    details = f"roles={roles};email={email};password_changed={'yes' if new_pwd else 'no'}"
                     cur.execute(
                         "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else None, user_id, "update_user", details, agora().isoformat()),
@@ -1485,6 +2063,7 @@ def usuarios_editar(user_id):
                 if u.get("id") == user_id:
                     u["role"] = role
                     u["roles"] = roles
+                    u["email"] = email
                     if new_pwd:
                         u["password_hash"] = generate_password_hash(new_pwd)
             salvar_usuarios(usuarios_lista)
@@ -3920,22 +4499,17 @@ def exportar_tudo():
     return resp
 
 
-# Exportar relatório financeiro em PDF com design e paleta do site
-@app.route('/exportar/pdf')
-@requires_permission('relatorios', 'read')
-def exportar_financeiro_pdf():
-    try:
-        from io import BytesIO
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib import colors
-        from reportlab.lib.units import mm
-        from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table as RLTable, TableStyle
-        )
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.pdfgen import canvas
-    except ImportError as e:
-        return str(e), 400
+# ── Geração de Relatórios em Memória (PDF e Excel) ───────────────────────────
+
+def gerar_pdf_financeiro_bytes():
+    """Gera os bytes do relatório financeiro em PDF com design e paleta do site."""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table as RLTable, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.pdfgen import canvas
 
     class NumberedCanvas(canvas.Canvas):
         def __init__(self, *args, **kwargs):
@@ -4049,118 +4623,83 @@ def exportar_financeiro_pdf():
         parent=cell_style,
         alignment=2
     )
-    cell_right_bold = ParagraphStyle(
-        'CellRightBold',
-        parent=cell_bold,
-        alignment=2
-    )
 
     elements = []
-    elements.append(Paragraph("Relatório Financeiro &amp; Balanço Executivo", title_style))
-    elements.append(Paragraph("Visão consolidada de estoque, faturamento de pedidos, despesas e margem operacional.", subtitle_style))
+    elements.append(Paragraph("RELATÓRIO FINANCEIRO &amp; BALANÇO GERAL", title_style))
+    elements.append(Paragraph(f"Posição consolidada em {agora().strftime('%d/%m/%Y às %H:%M:%S')}", subtitle_style))
+    elements.append(Spacer(1, 3 * mm))
 
-    # 1. KPI Cards Grid Table
-    lucro_color = '#2E7D32' if lucro >= 0 else '#C62828'
+    # Tabela de KPIs
     kpi_data = [
         [
-            Paragraph(f"<b>Valor em Estoque</b><br/><font size=12 color='#7C3D12'><b>R$ {formatar_reais(valor_estoque)}</b></font><br/><font size=7 color='#7A6B63'>Total em insumos</font>", cell_style),
-            Paragraph(f"<b>Receita Recebida</b><br/><font size=12 color='#2E7D32'><b>R$ {formatar_reais(receita_entregue)}</b></font><br/><font size=7 color='#7A6B63'>Pedidos entregues</font>", cell_style),
-            Paragraph(f"<b>Receita Prevista</b><br/><font size=12 color='#C88242'><b>R$ {formatar_reais(receita_prevista)}</b></font><br/><font size=7 color='#7A6B63'>Pedidos em andamento</font>", cell_style),
+            Paragraph("<b>RECEITA RECEBIDA</b><br/>(Pedidos Entregues)", cell_style),
+            Paragraph("<b>RECEITA PREVISTA</b><br/>(Em andamento)", cell_style),
+            Paragraph("<b>DESPESAS TOTAIS</b><br/>(Custos operacionais)", cell_style),
+            Paragraph("<b>LUCRO LÍQUIDO</b><br/>(Realizado)", cell_style),
+            Paragraph("<b>VALOR EM ESTOQUE</b><br/>(Patrimônio insumos)", cell_style),
         ],
         [
-            Paragraph(f"<b>Despesas Totais</b><br/><font size=12 color='#C62828'><b>R$ {formatar_reais(total_despesas)}</b></font><br/><font size=7 color='#7A6B63'>Custos operacionais</font>", cell_style),
-            Paragraph(f"<b>Lucro Realizado</b><br/><font size=12 color='{lucro_color}'><b>R$ {formatar_reais(lucro)}</b></font><br/><font size=7 color='#7A6B63'>Receita − Despesas</font>", cell_style),
-            Paragraph(f"<b>Total de Materiais</b><br/><font size=12 color='#5C2D0E'><b>{len(materiais)} itens</b></font><br/><font size=7 color='#7A6B63'>Cadastrados no estoque</font>", cell_style),
+            Paragraph(f"<font size='11' color='#2E7D32'><b>R$ {formatar_reais(receita_entregue)}</b></font>", cell_style),
+            Paragraph(f"<font size='11' color='#C88242'><b>R$ {formatar_reais(receita_prevista)}</b></font>", cell_style),
+            Paragraph(f"<font size='11' color='#C62828'><b>R$ {formatar_reais(total_despesas)}</b></font>", cell_style),
+            Paragraph(f"<font size='11' color='#7C3D12'><b>R$ {formatar_reais(lucro)}</b></font>", cell_style),
+            Paragraph(f"<font size='11' color='#5C2D0E'><b>R$ {formatar_reais(valor_estoque)}</b></font>", cell_style),
         ]
     ]
-    t_kpi = RLTable(kpi_data, colWidths=[60 * mm, 60 * mm, 60 * mm])
+    t_kpi = RLTable(kpi_data, colWidths=[36 * mm] * 5)
     t_kpi.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#FDF8F0")),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#E2D2BC")),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2D2BC")),
-        ('TOPPADDING', (0,0), (-1,-1), 5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#FDF8F0")),
+        ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#FFFFFF")),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2D2BC")),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
     ]))
     elements.append(t_kpi)
-    elements.append(Spacer(1, 10))
+    elements.append(Spacer(1, 5 * mm))
 
-    # 2. Despesas Registradas
-    elements.append(Paragraph("Despesas Recentes", h2_style))
+    # Despesas Recentes
+    elements.append(Paragraph("Detalhamento de Despesas Registradas", h2_style))
     desp_hdr = [
-        Paragraph("<font color='white'><b>Data</b></font>", cell_bold),
-        Paragraph("<font color='white'><b>Descrição</b></font>", cell_bold),
-        Paragraph("<font color='white'><b>Categoria</b></font>", cell_bold),
-        Paragraph("<font color='white'><b>Valor (R$)</b></font>", cell_right_bold),
+        Paragraph("<b>Descrição</b>", cell_bold),
+        Paragraph("<b>Categoria</b>", cell_bold),
+        Paragraph("<b>Data</b>", cell_bold),
+        Paragraph("<b>Valor (R$)</b>", cell_right),
     ]
     desp_table_data = [desp_hdr]
-    if despesas:
-        for d in despesas[:12]:
-            desp_table_data.append([
-                Paragraph(str(d.get("data", "")), cell_style),
-                Paragraph(str(d.get("descricao", "")), cell_style),
-                Paragraph(str(d.get("categoria", "Outros")), cell_style),
-                Paragraph(f"R$ {formatar_reais(float(d.get('valor', 0)))}", cell_right),
-            ])
-    else:
-        desp_table_data.append([Paragraph("Nenhuma despesa registrada.", cell_style), "", "", ""])
+    for d in despesas[-15:]:
+        desp_table_data.append([
+            Paragraph(f"{d.get('descricao','')}", cell_style),
+            Paragraph(str(d.get('categoria','Outros')), cell_style),
+            Paragraph(str(d.get('data','-')), cell_style),
+            Paragraph(f"R$ {formatar_reais(d.get('valor',0))}", cell_right),
+        ])
+    if len(desp_table_data) == 1:
+        desp_table_data.append([Paragraph("Nenhuma despesa registrada", cell_style), "", "", ""])
 
-    t_desp = RLTable(desp_table_data, colWidths=[25 * mm, 80 * mm, 40 * mm, 35 * mm])
+    t_desp = RLTable(desp_table_data, colWidths=[70 * mm, 40 * mm, 35 * mm, 35 * mm])
     t_desp.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#7C3D12")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
         ('BOTTOMPADDING', (0,0), (-1,-1), 3),
         ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor("#FFFFFF"), colors.HexColor("#FFFDF9")]),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor("#FDF8F0"), colors.HexColor("#FFFFFF")]),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2D2BC")),
     ]))
     elements.append(t_desp)
-    elements.append(Spacer(1, 10))
+    elements.append(Spacer(1, 5 * mm))
 
-    # 3. Pedidos dos Clientes
-    elements.append(Paragraph("Pedidos dos Clientes", h2_style))
-    ped_hdr = [
-        Paragraph("<font color='white'><b>Cliente</b></font>", cell_bold),
-        Paragraph("<font color='white'><b>Produto</b></font>", cell_bold),
-        Paragraph("<font color='white'><b>Qtd</b></font>", cell_bold),
-        Paragraph("<font color='white'><b>Status</b></font>", cell_bold),
-        Paragraph("<font color='white'><b>Valor Total</b></font>", cell_right_bold),
-    ]
-    ped_table_data = [ped_hdr]
-    if pedidos:
-        for p in pedidos[:12]:
-            st = p.get("status", "Pendente")
-            ped_table_data.append([
-                Paragraph(str(p.get("cliente", "")), cell_style),
-                Paragraph(str(p.get("produto_nome", "")), cell_style),
-                Paragraph(str(p.get("quantidade", 1)), cell_style),
-                Paragraph(st, cell_style),
-                Paragraph(f"R$ {formatar_reais(float(p.get('valor_total', 0)))}", cell_right),
-            ])
-    else:
-        ped_table_data.append([Paragraph("Nenhum pedido registrado.", cell_style), "", "", "", ""])
-
-    t_ped = RLTable(ped_table_data, colWidths=[45 * mm, 50 * mm, 15 * mm, 35 * mm, 35 * mm])
-    t_ped.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#7C3D12")),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor("#FFFFFF"), colors.HexColor("#FFFDF9")]),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2D2BC")),
-    ]))
-    elements.append(t_ped)
-    elements.append(Spacer(1, 10))
-
-    # 4. Alertas de Estoque Baixo
+    # Estoque Crítico
     baixo_estoque = [m for m in materiais if m.get("quantidade", 0) <= m.get("quantidade_minima", 0)]
     if baixo_estoque:
-        elements.append(Paragraph("Materiais em Nível Crítico de Estoque", h2_style))
+        elements.append(Paragraph(f"Alertas de Reposição ({len(baixo_estoque)} itens abaixo do mínimo)", h2_style))
         crit_hdr = [
-            Paragraph("<font color='white'><b>Material</b></font>", cell_bold),
-            Paragraph("<font color='white'><b>Categoria</b></font>", cell_bold),
-            Paragraph("<font color='white'><b>Qtd Atual</b></font>", cell_bold),
-            Paragraph("<font color='white'><b>Qtd Mínima</b></font>", cell_bold),
-            Paragraph("<font color='white'><b>Custo Reposição</b></font>", cell_right_bold),
+            Paragraph("<b>Material</b>", cell_bold),
+            Paragraph("<b>Categoria</b>", cell_bold),
+            Paragraph("<b>Quantidade Atual</b>", cell_bold),
+            Paragraph("<b>Mínimo</b>", cell_bold),
+            Paragraph("<b>Custo Reposição</b>", cell_right),
         ]
         crit_table_data = [crit_hdr]
         for m in baixo_estoque:
@@ -4185,22 +4724,179 @@ def exportar_financeiro_pdf():
         elements.append(t_crit)
 
     doc.build(elements, canvasmaker=NumberedCanvas)
-    buf.seek(0)
-    return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name='relatorio_financeiro_atelie.pdf')
+    return buf.getvalue()
 
 
-# Exportar todos os dados em Excel (XLSX) estruturado em Tabelas
-@app.route('/exportar/xlsx')
-@requires_permission('relatorios', 'read')
-def exportar_tudo_xlsx():
-    try:
-        from io import BytesIO
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        from openpyxl.utils import get_column_letter
-        from openpyxl.worksheet.table import Table, TableStyleInfo
-    except ImportError as e:
-        return str(e), 400
+def gerar_pdf_estoque_baixo_bytes():
+    """Gera os bytes do relatório de alerta de estoque crítico em PDF."""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table as RLTable, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.pdfgen import canvas
+
+    class NumberedCanvas(canvas.Canvas):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._saved_page_states = []
+
+        def showPage(self):
+            self._saved_page_states.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            num_pages = len(self._saved_page_states)
+            for state in self._saved_page_states:
+                self.__dict__.update(state)
+                self.draw_page_decorations(num_pages)
+                super().showPage()
+            super().save()
+
+        def draw_page_decorations(self, page_count):
+            self.saveState()
+            width, height = A4
+            self.setFillColor(colors.HexColor("#C62828"))
+            self.rect(0, height - 16 * mm, width, 16 * mm, stroke=0, fill=1)
+
+            self.setFillColor(colors.white)
+            self.setFont("Helvetica-Bold", 11)
+            self.drawString(15 * mm, height - 10.5 * mm, "ATELIE HAITI  -  ALERTA DE ESTOQUE CRITICO")
+
+            self.setFont("Helvetica", 8.5)
+            self.drawRightString(width - 15 * mm, height - 10.5 * mm, f"Emissao: {agora().strftime('%d/%m/%Y %H:%M')}")
+
+            self.setStrokeColor(colors.HexColor("#E2D2BC"))
+            self.setLineWidth(0.8)
+            self.line(15 * mm, 14 * mm, width - 15 * mm, 14 * mm)
+
+            self.setFont("Helvetica-Oblique", 8)
+            self.setFillColor(colors.HexColor("#7A6B63"))
+            self.drawString(15 * mm, 9 * mm, "Conectados pela Comunidade - Comunidade do Haiti, SP")
+            self.drawRightString(width - 15 * mm, 9 * mm, f"Pagina {self._pageNumber} de {page_count}")
+            self.restoreState()
+
+    materiais = carregar_materiais()
+    baixo_estoque = sorted(
+        [m for m in materiais if m.get("quantidade", 0) <= m.get("quantidade_minima", 0)],
+        key=lambda m: m.get("quantidade", 0)
+    )
+    zerados = [m for m in baixo_estoque if m.get("quantidade", 0) == 0]
+    valor_em_risco = round(sum(m.get("quantidade_minima", 0) * m.get("custo", 0) for m in baixo_estoque), 2)
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=15 * mm,
+        rightMargin=15 * mm,
+        topMargin=22 * mm,
+        bottomMargin=18 * mm
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=16,
+        leading=20,
+        textColor=colors.HexColor("#C62828"),
+        spaceAfter=3
+    )
+    subtitle_style = ParagraphStyle(
+        'DocSub',
+        parent=styles['Normal'],
+        fontName='Helvetica-Oblique',
+        fontSize=9.5,
+        leading=13,
+        textColor=colors.HexColor("#7A6B63"),
+        spaceAfter=10
+    )
+    cell_style = ParagraphStyle('Cell', parent=styles['Normal'], fontName='Helvetica', fontSize=8.5, leading=11, textColor=colors.HexColor("#2C1810"))
+    cell_bold = ParagraphStyle('CellBold', parent=cell_style, fontName='Helvetica-Bold')
+    cell_right = ParagraphStyle('CellRight', parent=cell_style, alignment=2)
+
+    elements = []
+    elements.append(Paragraph("RELATÓRIO DE MATERIAIS COM ESTOQUE CRÍTICO", title_style))
+    elements.append(Paragraph(f"Lista de reposição gerada em {agora().strftime('%d/%m/%Y às %H:%M:%S')}", subtitle_style))
+    elements.append(Spacer(1, 3 * mm))
+
+    # Cards KPI
+    kpi_data = [
+        [
+            Paragraph("<b>TOTAL DE ITENS CRÍTICOS</b>", cell_style),
+            Paragraph("<b>ITENS COM ESTOQUE ZERADO</b>", cell_style),
+            Paragraph("<b>ESTIMATIVA CUSTO DE REPOSIÇÃO</b>", cell_style),
+        ],
+        [
+            Paragraph(f"<font size='13' color='#C62828'><b>{len(baixo_estoque)}</b></font>", cell_style),
+            Paragraph(f"<font size='13' color='#B71C1C'><b>{len(zerados)}</b></font>", cell_style),
+            Paragraph(f"<font size='13' color='#7C3D12'><b>R$ {formatar_reais(valor_em_risco)}</b></font>", cell_style),
+        ]
+    ]
+    t_kpi = RLTable(kpi_data, colWidths=[60 * mm, 60 * mm, 60 * mm])
+    t_kpi.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#FFF8F8")),
+        ('BACKGROUND', (0,1), (-1,1), colors.HexColor("#FFFFFF")),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2D2BC")),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    elements.append(t_kpi)
+    elements.append(Spacer(1, 6 * mm))
+
+    # Tabela
+    crit_hdr = [
+        Paragraph("<b>Material</b>", cell_bold),
+        Paragraph("<b>Categoria</b>", cell_bold),
+        Paragraph("<b>Quantidade Atual</b>", cell_bold),
+        Paragraph("<b>Estoque Mínimo</b>", cell_bold),
+        Paragraph("<b>Custo Unitário</b>", cell_right),
+        Paragraph("<b>Custo Reposição</b>", cell_right),
+    ]
+    crit_table_data = [crit_hdr]
+    for m in baixo_estoque:
+        custo_rep = (m.get("quantidade_minima", 0) - m.get("quantidade", 0)) * m.get("custo", 0)
+        if custo_rep < 0:
+            custo_rep = 0
+        crit_table_data.append([
+            Paragraph(f"<b>{m.get('nome','')}</b>", cell_style),
+            Paragraph(str(m.get('categoria','')), cell_style),
+            Paragraph(f"<font color='#C62828'><b>{m.get('quantidade',0)} {m.get('unidade','')}</b></font>", cell_style),
+            Paragraph(f"{m.get('quantidade_minima',0)} {m.get('unidade','')}", cell_style),
+            Paragraph(f"R$ {formatar_reais(m.get('custo',0))}", cell_right),
+            Paragraph(f"<b>R$ {formatar_reais(custo_rep)}</b>", cell_right),
+        ])
+
+    if len(crit_table_data) == 1:
+        crit_table_data.append([Paragraph("Nenhum material com estoque crítico no momento. Parabéns!", cell_style), "", "", "", "", ""])
+
+    t_crit = RLTable(crit_table_data, colWidths=[48 * mm, 30 * mm, 28 * mm, 24 * mm, 25 * mm, 25 * mm])
+    t_crit.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#C62828")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor("#FFF8F8"), colors.HexColor("#FFFFFF")]),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2D2BC")),
+    ]))
+    elements.append(t_crit)
+
+    doc.build(elements, canvasmaker=NumberedCanvas)
+    return buf.getvalue()
+
+
+def gerar_xlsx_completo_bytes():
+    """Gera os bytes da planilha Excel (XLSX) completa estruturada em tabelas."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table, TableStyleInfo
 
     wb = Workbook()
 
@@ -4208,80 +4904,75 @@ def exportar_tudo_xlsx():
     header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
     data_font = Font(name="Segoe UI", size=10)
     data_bold = Font(name="Segoe UI", size=10, bold=True)
-
-    thin_border = Border(
-        left=Side(style='thin', color='E2D2BC'),
-        right=Side(style='thin', color='E2D2BC'),
-        top=Side(style='thin', color='E2D2BC'),
-        bottom=Side(style='thin', color='E2D2BC')
-    )
+    thin_border = Border(left=Side(style='thin', color='E2D2BC'), right=Side(style='thin', color='E2D2BC'), top=Side(style='thin', color='E2D2BC'), bottom=Side(style='thin', color='E2D2BC'))
     alt_fill = PatternFill(start_color="FDF8F0", end_color="FDF8F0", fill_type="solid")
     warning_fill = PatternFill(start_color="FFEBEE", end_color="FFEBEE", fill_type="solid")
     warning_font = Font(name="Segoe UI", size=10, bold=True, color="C62828")
 
-    # 1. ABA RESUMO GERAL
     ws_resumo = wb.active
     ws_resumo.title = "Resumo Geral"
-    ws_resumo.views.sheetView[0].showGridLines = True
-
-    ws_resumo.merge_cells("A1:E1")
+    ws_resumo.merge_cells("A1:C1")
     ws_resumo["A1"] = "ATELIÊ HAITI — RELATÓRIO GERAL E BALANÇO"
     ws_resumo["A1"].font = Font(name="Segoe UI", size=14, bold=True, color="FFFFFF")
     ws_resumo["A1"].fill = header_fill
     ws_resumo["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws_resumo.row_dimensions[1].height = 34
-
     ws_resumo["A2"] = f"Relatório gerado em: {agora().strftime('%d/%m/%Y %H:%M:%S')}"
     ws_resumo["A2"].font = Font(name="Segoe UI", size=9.5, italic=True, color="7A6B63")
-    ws_resumo.row_dimensions[2].height = 18
 
     materiais = carregar_materiais()
     pedidos = carregar_pedidos()
     despesas = carregar_despesas()
     produtos = carregar_produtos()
-    sobras = carregar_sobras()
-    movimentacoes = carregar_movimentacoes(200)
 
     valor_estoque = round(sum(m.get("quantidade", 0) * m.get("custo", 0) for m in materiais), 2)
     receita_entregue = round(sum(p.get("valor_total", 0) for p in pedidos if p.get("status") == "Entregue"), 2)
     receita_prevista = round(sum(p.get("valor_total", 0) for p in pedidos if p.get("status") in ("Pendente", "Em produção", "Concluído")), 2)
     total_despesas = round(sum(d.get("valor", 0) for d in despesas), 2)
     lucro = round(receita_entregue - total_despesas, 2)
+    baixo_estoque = [m for m in materiais if m.get("quantidade", 0) <= m.get("quantidade_minima", 0)]
 
-    resumo_kpis = [
-        ("Indicador Financeiro / Operacional", "Valor Consolidado", "Status / Detalhe"),
-        ("Valor Total em Estoque (Insumos)", valor_estoque, f"{len(materiais)} materiais cadastrados"),
-        ("Receita Confirmada (Pedidos Entregues)", receita_entregue, f"{len([p for p in pedidos if p.get('status') == 'Entregue'])} pedidos finalizados"),
-        ("Receita Prevista (Em Produção/Pendentes)", receita_prevista, f"{len([p for p in pedidos if p.get('status') != 'Entregue'])} pedidos em andamento"),
-        ("Despesas Totais Registradas", total_despesas, f"{len(despesas)} lançamentos"),
-        ("Lucro Realizado (Receita − Despesas)", lucro, "Saldo operacional líquido"),
+    indicadores = [
+        ("Indicador Financeiro / Operacional", "Valor Consolidado", "Observação"),
+        ("Receita Recebida (Pedidos Entregues)", receita_entregue, "Total faturado e entregue aos clientes"),
+        ("Receita Prevista (Em Produção/Pendente)", receita_prevista, "Pedidos confirmados a serem entregues"),
+        ("Despesas Totais Registradas", total_despesas, "Custos de produção e operacionais"),
+        ("Lucro Líquido Realizado", lucro, "Receita Entregue menos Despesas Totais"),
+        ("Valor Patrimonial em Estoque", valor_estoque, "Soma de insumos e matérias-primas"),
+        ("Total de Materiais em Catálogo", len(materiais), "Tipos de insumos cadastrados"),
+        ("Itens em Nível Crítico de Estoque", len(baixo_estoque), "Materiais com quantidade <= mínima"),
+        ("Total de Produtos / Receitas", len(produtos), "Modelos artesanais desenvolvidos"),
+        ("Total de Pedidos Realizados", len(pedidos), "Histórico de compras de clientes"),
     ]
 
-    start_row = 4
-    for r_idx, row_data in enumerate(resumo_kpis, start=start_row):
+    for r_idx, row_data in enumerate(indicadores, start=4):
+        ws_resumo.row_dimensions[r_idx].height = 22
         for c_idx, val in enumerate(row_data, start=1):
-            cell = ws_resumo.cell(row=r_idx, column=c_idx, value=val)
+            cell = ws_resumo.cell(row=r_idx, column=c_idx)
+            cell.value = val
             cell.border = thin_border
-            if r_idx == start_row:
+            if r_idx == 4:
                 cell.fill = header_fill
                 cell.font = header_font
-                cell.alignment = Alignment(horizontal="center" if c_idx > 1 else "left", vertical="center")
+                cell.alignment = Alignment(horizontal="center" if c_idx == 2 else "left", vertical="center")
             else:
-                if c_idx == 2 and isinstance(val, (int, float)):
-                    cell.number_format = 'R$ #,##0.00'
-                    cell.font = data_bold
-                    cell.alignment = Alignment(horizontal="right", vertical="center")
-                else:
-                    cell.font = data_font
-                    cell.alignment = Alignment(horizontal="left", vertical="center")
-                if r_idx % 2 == 0:
+                cell.font = data_font
+                if r_idx % 2 == 1:
                     cell.fill = alt_fill
-        ws_resumo.row_dimensions[r_idx].height = 22
+                if c_idx == 2:
+                    if isinstance(val, (int, float)) and r_idx <= 9:
+                        cell.number_format = 'R$ #,##0.00'
+                        cell.font = data_bold
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+
+    tab_resumo = Table(displayName="TabelaResumo", ref=f"A4:C{len(indicadores) + 3}")
+    tab_resumo.tableStyleInfo = TableStyleInfo(name="TableStyleLight1", showFirstColumn=False, showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+    ws_resumo.add_table(tab_resumo)
 
     # 2. ABA ESTOQUE DE MATERIAIS
     ws_mat = wb.create_sheet(title="Estoque de Materiais")
     ws_mat.views.sheetView[0].showGridLines = True
-    mat_headers = ["ID", "Material", "Categoria", "Qtd em Estoque", "Unidade", "Qtd Mínima", "Custo Unitário", "Valor Total", "GTIN", "Status"]
+    mat_headers = ["ID", "Nome do Material", "Categoria", "Quantidade", "Unidade", "Qtd Mínima", "Custo Unit.", "Valor Total", "Código GTIN", "Status Estoque"]
     ws_mat.append(mat_headers)
     ws_mat.row_dimensions[1].height = 24
 
@@ -4289,13 +4980,13 @@ def exportar_tudo_xlsx():
         qtd = float(m.get("quantidade", 0))
         qtd_min = float(m.get("quantidade_minima", 0))
         custo = float(m.get("custo", 0))
-        val_tot = qtd * custo
+        val_tot = round(qtd * custo, 2)
         is_critico = (qtd <= qtd_min)
-        status_txt = "Crítico" if is_critico else "Normal"
+        status_txt = "CRÍTICO" if is_critico else "OK"
 
         row = [
             m.get("id", ""),
-            f"{m.get('nome', '')}",
+            m.get("nome", ""),
             m.get("categoria", ""),
             qtd,
             m.get("unidade", ""),
@@ -4307,22 +4998,17 @@ def exportar_tudo_xlsx():
         ]
         ws_mat.append(row)
         ws_mat.row_dimensions[r_idx].height = 20
-
         for c_idx in range(1, len(mat_headers) + 1):
             cell = ws_mat.cell(row=r_idx, column=c_idx)
             cell.border = thin_border
             cell.font = data_font
-            if c_idx in (4, 6):
-                cell.number_format = '#,##0.00'
-            elif c_idx in (7, 8):
+            if c_idx in (7, 8):
                 cell.number_format = 'R$ #,##0.00'
-
-            if is_critico:
+            elif c_idx in (4, 6):
+                cell.number_format = '#,##0.00'
+            if is_critico and c_idx in (4, 10):
                 cell.fill = warning_fill
-                if c_idx in (4, 10):
-                    cell.font = warning_font
-            elif r_idx % 2 == 0:
-                cell.fill = alt_fill
+                cell.font = warning_font
 
     for c_idx in range(1, len(mat_headers) + 1):
         cell = ws_mat.cell(row=1, column=c_idx)
@@ -4337,19 +5023,26 @@ def exportar_tudo_xlsx():
         ws_mat.add_table(tab_mat)
 
     # 3. ABA PRODUTOS
-    ws_prod = wb.create_sheet(title="Produtos")
+    ws_prod = wb.create_sheet(title="Produtos e Receitas")
     ws_prod.views.sheetView[0].showGridLines = True
-    prod_headers = ["ID", "Produto", "Preço de Venda", "Qtd Insumos Receita"]
+    prod_headers = ["ID", "Produto", "Preço Venda", "Estoque Pronto", "Código GTIN", "Qtd Insumos Receita"]
     ws_prod.append(prod_headers)
     ws_prod.row_dimensions[1].height = 24
 
-    for r_idx, pr in enumerate(produtos, start=2):
-        receita_len = len(pr.get("receita") or [])
+    for r_idx, p in enumerate(produtos, start=2):
+        receita = p.get("receita", [])
+        if isinstance(receita, str):
+            try:
+                receita = json.loads(receita)
+            except Exception:
+                receita = []
         row = [
-            pr.get("id", ""),
-            pr.get("nome", ""),
-            float(pr.get("preco_venda", 0)),
-            receita_len
+            p.get("id", ""),
+            p.get("nome", ""),
+            float(p.get("preco_venda", 0)),
+            int(p.get("estoque_pronto", 0)),
+            p.get("gtin", "") or "-",
+            len(receita)
         ]
         ws_prod.append(row)
         ws_prod.row_dimensions[r_idx].height = 20
@@ -4359,9 +5052,7 @@ def exportar_tudo_xlsx():
             cell.font = data_font
             if c_idx == 3:
                 cell.number_format = 'R$ #,##0.00'
-            elif c_idx == 4:
-                cell.number_format = '#,##0'
-
+    
     for c_idx in range(1, len(prod_headers) + 1):
         cell = ws_prod.cell(row=1, column=c_idx)
         cell.fill = header_fill
@@ -4377,7 +5068,7 @@ def exportar_tudo_xlsx():
     # 4. ABA PEDIDOS
     ws_ped = wb.create_sheet(title="Pedidos")
     ws_ped.views.sheetView[0].showGridLines = True
-    ped_headers = ["ID", "Cliente", "Produto", "Quantidade", "Valor Unitário", "Valor Total", "Status", "Data Entrega", "Criado em"]
+    ped_headers = ["ID", "Cliente", "Produto", "Quantidade", "Valor Unitário", "Valor Total", "Status", "Data Pedido", "Criado em"]
     ws_ped.append(ped_headers)
     ws_ped.row_dimensions[1].height = 24
 
@@ -4393,7 +5084,7 @@ def exportar_tudo_xlsx():
             val_un,
             val_tot,
             p.get("status", "Pendente"),
-            p.get("data_entrega", "") or "-",
+            p.get("data_pedido", "") or "-",
             p.get("created_at", "")[:16] if p.get("created_at") else "-"
         ]
         ws_ped.append(row)
@@ -4404,8 +5095,6 @@ def exportar_tudo_xlsx():
             cell.font = data_font
             if c_idx in (5, 6):
                 cell.number_format = 'R$ #,##0.00'
-            elif c_idx == 4:
-                cell.number_format = '#,##0'
 
     for c_idx in range(1, len(ped_headers) + 1):
         cell = ws_ped.cell(row=1, column=c_idx)
@@ -4458,6 +5147,7 @@ def exportar_tudo_xlsx():
         ws_desp.add_table(tab_desp)
 
     # 6. ABA SOBRAS
+    sobras = carregar_sobras()
     ws_sob = wb.create_sheet(title="Sobras")
     ws_sob.views.sheetView[0].showGridLines = True
     sob_headers = ["ID", "Descrição", "Quantidade", "Unidade", "Data", "Status"]
@@ -4508,8 +5198,786 @@ def exportar_tudo_xlsx():
 
     buf = BytesIO()
     wb.save(buf)
-    buf.seek(0)
-    return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='export_atelie_haiti.xlsx')
+    return buf.getvalue()
+
+
+# Exportar relatório financeiro em PDF com design e paleta do site
+@app.route('/exportar/pdf')
+@requires_permission('relatorios', 'read')
+def exportar_financeiro_pdf():
+    try:
+        from io import BytesIO
+        pdf_bytes = gerar_pdf_financeiro_bytes()
+        buf = BytesIO(pdf_bytes)
+        return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name='relatorio_financeiro_atelie.pdf')
+    except Exception as e:
+        return str(e), 400
+
+
+# Exportar todos os dados em Excel (XLSX) estruturado em Tabelas
+@app.route('/exportar/xlsx')
+@requires_permission('relatorios', 'read')
+def exportar_tudo_xlsx():
+    try:
+        from io import BytesIO
+        xlsx_bytes = gerar_xlsx_completo_bytes()
+        buf = BytesIO(xlsx_bytes)
+        return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='export_atelie_haiti.xlsx')
+    except Exception as e:
+        return str(e), 400
+
+
+# ── Serviço de Disparo de E-mails via Google Gmail API (Usuário-para-Usuário) ──
+
+def obter_configuracoes_email():
+    """Retorna o status do provedor de e-mail (Google Gmail API)."""
+    sso_cfg = obter_configuracoes_sso()
+    return {
+        "provider": "google_gmail_api",
+        "ativo": sso_cfg.get("ativo", 0),
+        "google_client_id": sso_cfg.get("google_client_id", ""),
+        "modo_simulacao": 0 if (sso_cfg.get("ativo") and sso_cfg.get("google_client_id")) else 1,
+    }
+
+
+def registrar_historico_email(hist_id, agendamento_id, titulo, tipo_relatorio, destinatarios, status, mensagem_status, enviado_por, created_at):
+    """Grava um registro no histórico de envios de e-mail (mantém até 300 registros)."""
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "INSERT INTO historico_envios_email (id, agendamento_id, titulo, tipo_relatorio, destinatarios, status, mensagem_status, enviado_por, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (hist_id, agendamento_id, titulo, tipo_relatorio, destinatarios, status, mensagem_status, enviado_por, created_at)
+            )
+            cur.execute("DELETE FROM historico_envios_email WHERE id NOT IN (SELECT id FROM historico_envios_email ORDER BY created_at DESC LIMIT 300)")
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+
+def carregar_historico_emails(limit=100):
+    """Carrega o histórico de envios ordenado do mais recente para o mais antigo."""
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM historico_envios_email ORDER BY created_at DESC LIMIT ?", (limit,))
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows
+    return []
+
+
+def gerar_html_email_relatorio(titulo, mensagem_customizada="", anexos_nomes=None):
+    """Monta o template HTML responsivo e estilizado para o corpo do e-mail."""
+    materiais = carregar_materiais()
+    pedidos = carregar_pedidos()
+    despesas = carregar_despesas()
+
+    baixo_estoque = [m for m in materiais if m.get("quantidade", 0) <= m.get("quantidade_minima", 0)]
+    rec_entregue = round(sum(p.get("valor_total", 0) for p in pedidos if p.get("status") == "Entregue"), 2)
+    tot_despesas = round(sum(d.get("valor", 0) for d in despesas), 2)
+    pedidos_ativos = [p for p in pedidos if p.get("status") in ("Pendente", "Em produção", "Concluído")]
+
+    anexos_html = ""
+    if anexos_nomes:
+        anexos_li = "".join([f"<li style='margin-bottom:4px;'>📎 <strong>{nome}</strong></li>" for nome in anexos_nomes])
+        anexos_html = f"""
+        <div style='margin-top:18px; padding:12px 16px; background:#f9f5f0; border-radius:8px; border-left:4px solid #7C3D12;'>
+          <p style='margin:0 0 6px 0; font-size:14px; font-weight:bold; color:#7C3D12;'>Arquivos Anexados:</p>
+          <ul style='margin:0; padding-left:20px; font-size:13.5px; color:#2C1810;'>
+            {anexos_li}
+          </ul>
+        </div>
+        """
+
+    msg_bloco = ""
+    if mensagem_customizada:
+        msg_bloco = f"""
+        <div style='margin-bottom:18px; padding:14px 16px; background:#fffbf4; border:1px solid #e2d2bc; border-radius:8px;'>
+          <p style='margin:0; font-size:14.5px; color:#2C1810; font-style:italic;'>{mensagem_customizada}</p>
+        </div>
+        """
+
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color:#f7f3ee; margin:0; padding:20px;">
+  <div style="max-width:600px; margin:0 auto; background:#ffffff; border-radius:12px; overflow:hidden; border:1px solid #e2d2bc; box-shadow:0 4px 12px rgba(0,0,0,0.06);">
+    <div style="background:#7C3D12; padding:24px 20px; text-align:center; color:#ffffff;">
+      <h1 style="margin:0; font-size:22px; font-weight:bold; letter-spacing:0.5px;">✂️ ATELIÊ HAITI</h1>
+      <p style="margin:4px 0 0 0; font-size:13px; color:#fde9c2; font-style:italic;">Gestão Artesanal &amp; Produção Comunitária</p>
+    </div>
+
+    <div style="padding:24px 20px;">
+      <h2 style="margin:0 0 6px 0; font-size:18px; color:#7C3D12;">{titulo}</h2>
+      <p style="font-size:13px; color:#7A6B63; margin:0 0 16px 0;">Emissão: {agora().strftime('%d/%m/%Y às %H:%M')}</p>
+      
+      {msg_bloco}
+
+      <div style="display:table; width:100%; margin-bottom:12px;">
+        <div style="display:table-cell; width:50%; padding-right:6px;">
+          <div style="background:#fdf8f0; border:1px solid #e2d2bc; border-radius:8px; padding:12px; text-align:center;">
+            <p style="margin:0; font-size:12px; color:#7A6B63;">Faturamento Entregue</p>
+            <p style="margin:4px 0 0 0; font-size:18px; font-weight:bold; color:#2E7D32;">R$ {formatar_reais(rec_entregue)}</p>
+          </div>
+        </div>
+        <div style="display:table-cell; width:50%; padding-left:6px;">
+          <div style="background:#fdf8f0; border:1px solid #e2d2bc; border-radius:8px; padding:12px; text-align:center;">
+            <p style="margin:0; font-size:12px; color:#7A6B63;">Despesas Registradas</p>
+            <p style="margin:4px 0 0 0; font-size:18px; font-weight:bold; color:#C62828;">R$ {formatar_reais(tot_despesas)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:table; width:100%; margin-bottom:16px;">
+        <div style="display:table-cell; width:50%; padding-right:6px;">
+          <div style="background:#fdf8f0; border:1px solid #e2d2bc; border-radius:8px; padding:12px; text-align:center;">
+            <p style="margin:0; font-size:12px; color:#7A6B63;">Pedidos em Andamento</p>
+            <p style="margin:4px 0 0 0; font-size:18px; font-weight:bold; color:#7C3D12;">{len(pedidos_ativos)}</p>
+          </div>
+        </div>
+        <div style="display:table-cell; width:50%; padding-left:6px;">
+          <div style="background:#fdf8f0; border:1px solid #e2d2bc; border-radius:8px; padding:12px; text-align:center;">
+            <p style="margin:0; font-size:12px; color:#7A6B63;">Itens em Estoque Baixo</p>
+            <p style="margin:4px 0 0 0; font-size:18px; font-weight:bold; color:{'#C62828' if baixo_estoque else '#2E7D32'};">{len(baixo_estoque)}</p>
+          </div>
+        </div>
+      </div>
+
+      {anexos_html}
+
+      <p style="margin:20px 0 0 0; font-size:13px; color:#7A6B63; line-height:1.4;">
+        Os relatórios detalhados encontram-se em anexo para download e consulta.
+      </p>
+    </div>
+
+    <div style="background:#f4ece1; padding:16px 20px; text-align:center; border-top:1px solid #e2d2bc;">
+      <p style="margin:0; font-size:12px; color:#7A6B63;">
+        ✦ Conectados pela Comunidade — Comunidade do Haiti, SP ✦<br>
+        Sistema Ateliê Haiti — Mensagem gerada automaticamente via Google Gmail API.
+      </p>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+def enviar_email(destinatarios, assunto, corpo_html, anexos=None, texto_puro=None, remetente_user_id=None, agendamento_id=None, tipo_relatorio="Geral", enviado_por=None):
+    """
+    Envia um e-mail formatado com relatórios anexos via API oficial do Gmail (Google OAuth2)
+    diretamente da conta do usuário autenticado para os destinatários,
+    ou registra no histórico em Modo Simulação quando não houver token Google.
+    """
+    if isinstance(destinatarios, str):
+        dest_lista = [d.strip() for d in re.split(r"[,;]", destinatarios) if d.strip()]
+    else:
+        dest_lista = [str(d).strip() for d in destinatarios if str(d).strip()]
+
+    if not dest_lista:
+        return {"success": False, "error": "Nenhum destinatário válido informado."}
+
+    # Identifica o usuário remetente
+    remetente_user = None
+    if remetente_user_id:
+        remetente_user = encontrar_usuario_por_id(remetente_user_id)
+    elif g.get("user"):
+        remetente_user = g.user
+
+    remetente_email = (remetente_user.get("email") if remetente_user else "") or "relatorios@ateliehaiti.com"
+    remetente_nome = (remetente_user.get("nome") or remetente_user.get("username") if remetente_user else "") or "Ateliê Haiti"
+    autor_registro = enviado_por or remetente_nome or "Sistema"
+
+    # Monta a mensagem MIME multipart
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = assunto
+    msg["From"] = f"{remetente_nome} <{remetente_email}>"
+    msg["To"] = ", ".join(dest_lista)
+
+    alt_part = MIMEMultipart("alternative")
+    if texto_puro:
+        alt_part.attach(MIMEText(texto_puro, "plain", "utf-8"))
+    alt_part.attach(MIMEText(corpo_html, "html", "utf-8"))
+    msg.attach(alt_part)
+
+    if anexos:
+        for anexo in anexos:
+            nome_anexo = anexo.get("nome", "relatorio.dat")
+            dados_bytes = anexo.get("bytes", b"")
+            mimetype = anexo.get("mimetype", "application/octet-stream")
+            maintype, subtype = mimetype.split("/", 1) if "/" in mimetype else ("application", "octet-stream")
+
+            part = MIMEBase(maintype, subtype)
+            part.set_payload(dados_bytes)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f'attachment; filename="{nome_anexo}"')
+            msg.attach(part)
+
+    hist_id = str(uuid.uuid4())
+    now = agora().isoformat()
+    dest_str = ", ".join(dest_lista)
+
+    # Tenta recuperar o token de acesso Google do remetente
+    token_res = obter_access_token_gmail_usuario(remetente_user) if remetente_user else {"success": False, "reason": "no_user"}
+
+    if not token_res.get("success"):
+        # Modo Simulação (usuário sem login Google vinculado ou ambiente de testes)
+        status = "Simulado"
+        msg_status = f"E-mail simulado com sucesso (Modo Simulação / Sem token Google). De: {remetente_email} Para: {len(dest_lista)} destinatário(s). Anexos: {len(anexos or [])} arquivo(s)."
+        registrar_historico_email(hist_id, agendamento_id, assunto, tipo_relatorio, dest_str, status, msg_status, autor_registro, now)
+        return {"success": True, "simulated": True, "message": msg_status, "historico_id": hist_id}
+
+    # Envio Real via Gmail REST API
+    try:
+        raw_b64 = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+        access_token = token_res["access_token"]
+        
+        api_resp = requests.post(
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            json={"raw": raw_b64},
+            timeout=25
+        )
+
+        if api_resp.status_code in (200, 201):
+            status = "Sucesso"
+            msg_status = f"E-mail enviado com sucesso via Gmail API a partir de {remetente_email} para {len(dest_lista)} destinatário(s)."
+            registrar_historico_email(hist_id, agendamento_id, assunto, tipo_relatorio, dest_str, status, msg_status, autor_registro, now)
+            return {"success": True, "simulated": False, "message": msg_status, "historico_id": hist_id}
+        else:
+            status = "Falha"
+            msg_status = f"Erro na Gmail API ({api_resp.status_code}): {api_resp.text}"
+            registrar_historico_email(hist_id, agendamento_id, assunto, tipo_relatorio, dest_str, status, msg_status, autor_registro, now)
+            return {"success": False, "error": msg_status, "historico_id": hist_id}
+    except Exception as e:
+        status = "Falha"
+        msg_status = f"Erro de conexão com a Gmail API: {str(e)}"
+        registrar_historico_email(hist_id, agendamento_id, assunto, tipo_relatorio, dest_str, status, msg_status, autor_registro, now)
+        return {"success": False, "error": str(e), "historico_id": hist_id}
+
+
+# ── Agendamento de Envios Regulares & Background Engine ───────────────────────
+
+def calcular_proximo_envio(frequencia, hora_envio_str, dia_semana=0, dia_mes=1, a_partir_de=None):
+    """Calcula a data e hora do próximo envio no fuso horário de Brasília."""
+    base = a_partir_de or agora()
+    try:
+        h, m = [int(x) for x in hora_envio_str.split(":")]
+    except Exception:
+        h, m = 8, 0
+
+    alvo = base.replace(hour=h, minute=m, second=0, microsecond=0)
+
+    if frequencia == "diario":
+        if alvo <= base:
+            alvo += timedelta(days=1)
+
+    elif frequencia == "semanal":
+        target_weekday = int(dia_semana if dia_semana is not None else 0)
+        dias_a_frente = (target_weekday - base.weekday()) % 7
+        alvo = base.replace(hour=h, minute=m, second=0, microsecond=0) + timedelta(days=dias_a_frente)
+        if alvo <= base:
+            alvo += timedelta(days=7)
+
+    elif frequencia == "mensal":
+        ano = base.year
+        mes = base.month
+        dia = min(max(1, int(dia_mes if dia_mes is not None else 1)), 28)
+        try:
+            alvo = datetime(ano, mes, dia, h, m, tzinfo=FUSO_BR)
+        except Exception:
+            alvo = datetime(ano, mes, 28, h, m, tzinfo=FUSO_BR)
+
+        if alvo <= base:
+            if mes == 12:
+                ano += 1
+                mes = 1
+            else:
+                mes += 1
+            alvo = datetime(ano, mes, dia, h, m, tzinfo=FUSO_BR)
+
+    return alvo
+
+
+def carregar_agendamentos_email():
+    """Retorna a lista de todas as regras de agendamento cadastradas."""
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM agendamentos_email ORDER BY created_at DESC")
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows
+    return []
+
+
+def carregar_agendamento_por_id(agendamento_id):
+    """Busca uma regra de agendamento pelo seu ID único."""
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM agendamentos_email WHERE id=?", (agendamento_id,))
+        r = cur.fetchone()
+        conn.close()
+        return dict(r) if r else None
+    return None
+
+
+def executar_agendamento(agendamento, disparado_por="Agendador Automático"):
+    """Gera os relatórios anexos e executa o disparo do agendamento usando o token do criador."""
+    tipo = agendamento.get("tipo_relatorio", "financeiro_pdf")
+    titulo = agendamento.get("titulo", "Relatório Periódico")
+    destinatarios = agendamento.get("destinatarios", "")
+    assunto = agendamento.get("assunto") or f"📊 {titulo} — Ateliê Haiti"
+    msg_custom = agendamento.get("mensagem") or f"Segue em anexo o relatório periódico '{titulo}' gerado automaticamente pelo sistema."
+    remetente_uid = agendamento.get("usuario_remetente_id")
+
+    anexos = []
+    if tipo in ("financeiro_pdf", "ambos"):
+        try:
+            pdf_bytes = gerar_pdf_financeiro_bytes()
+            anexos.append({"nome": f"relatorio_financeiro_{agora().strftime('%Y%m%d')}.pdf", "bytes": pdf_bytes, "mimetype": "application/pdf"})
+        except Exception as e:
+            print(f"Erro ao gerar PDF financeiro: {e}")
+
+    if tipo in ("completo_xlsx", "ambos"):
+        try:
+            xlsx_bytes = gerar_xlsx_completo_bytes()
+            anexos.append({"nome": f"export_atelie_completo_{agora().strftime('%Y%m%d')}.xlsx", "bytes": xlsx_bytes, "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})
+        except Exception as e:
+            print(f"Erro ao gerar XLSX: {e}")
+
+    if tipo == "estoque_baixo_pdf":
+        try:
+            pdf_bytes = gerar_pdf_estoque_baixo_bytes()
+            anexos.append({"nome": f"alerta_estoque_critico_{agora().strftime('%Y%m%d')}.pdf", "bytes": pdf_bytes, "mimetype": "application/pdf"})
+        except Exception as e:
+            print(f"Erro ao gerar PDF de estoque: {e}")
+
+    corpo_html = gerar_html_email_relatorio(titulo, msg_custom, anexos_nomes=[a["nome"] for a in anexos])
+    resultado = enviar_email(
+        destinatarios=destinatarios,
+        assunto=assunto,
+        corpo_html=corpo_html,
+        anexos=anexos,
+        texto_puro=msg_custom,
+        remetente_user_id=remetente_uid,
+        agendamento_id=agendamento.get("id"),
+        tipo_relatorio=tipo,
+        enviado_por=disparado_por
+    )
+
+    now_iso = agora().isoformat()
+    prox = calcular_proximo_envio(
+        agendamento.get("frequencia", "diario"),
+        agendamento.get("hora_envio", "08:00"),
+        agendamento.get("dia_semana", 0),
+        agendamento.get("dia_mes", 1),
+        a_partir_de=agora()
+    )
+
+    if USE_SQLITE and agendamento.get("id"):
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE agendamentos_email SET ultimo_envio=?, proximo_envio=?, updated_at=? WHERE id=?",
+                (now_iso, prox.isoformat(), now_iso, agendamento.get("id"))
+            )
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    return resultado
+
+
+_SCHEDULER_RUNNING = False
+
+def _loop_agendador_background():
+    global _SCHEDULER_RUNNING
+    while _SCHEDULER_RUNNING:
+        try:
+            agora_str = agora().isoformat()
+            if USE_SQLITE:
+                init_db()
+                conn = sqlite3.connect(DB_PATH)
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT * FROM agendamentos_email WHERE ativo=1 AND proximo_envio IS NOT NULL AND proximo_envio <= ?",
+                    (agora_str,)
+                )
+                devidos = [dict(r) for r in cur.fetchall()]
+                conn.close()
+                for ag in devidos:
+                    try:
+                        executar_agendamento(ag, disparado_por="Agendador Automático")
+                    except Exception as ex:
+                        print(f"Erro ao executar agendamento regular {ag.get('id')}: {ex}")
+        except Exception as e:
+            print(f"Erro no ciclo do agendador: {e}")
+
+        time.sleep(30)
+
+
+def iniciar_agendador_background():
+    """Inicia a thread em background que monitora agendamentos de e-mails."""
+    global _SCHEDULER_RUNNING
+    if not _SCHEDULER_RUNNING and os.environ.get("FLASK_ENV") != "testing":
+        _SCHEDULER_RUNNING = True
+        t = threading.Thread(target=_loop_agendador_background, daemon=True, name="AgendadorEmailAtelie")
+        t.start()
+
+
+# ── Rotas de Envio de Relatórios e Agendamentos por E-mail ────────────────────
+
+@app.route("/relatorios/enviar-email", methods=["GET", "POST"])
+@requires_permission("relatorios", "read")
+def relatorios_enviar_email():
+    usuarios_lista = carregar_usuarios()
+    config_email = obter_configuracoes_email()
+
+    if request.method == "POST":
+        tipo_relatorio = request.form.get("tipo_relatorio", "financeiro_pdf")
+        dest_usuarios = request.form.getlist("destinatarios_usuarios")
+        dest_extras_raw = request.form.get("destinatarios_extras", "")
+        dest_extras = [e.strip() for e in re.split(r"[,;]", dest_extras_raw) if e.strip()]
+        
+        todos_destinatarios = list(dict.fromkeys(dest_usuarios + dest_extras))
+        if not todos_destinatarios:
+            flash("Selecione ou digite ao menos um endereço de e-mail de destino.")
+            return render_template("relatorios_email_enviar.html", usuarios=usuarios_lista, config_email=config_email)
+
+        # Validação básica de formato de e-mail
+        for email_check in todos_destinatarios:
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_check):
+                flash(f"E-mail em formato inválido: {email_check}")
+                return render_template("relatorios_email_enviar.html", usuarios=usuarios_lista, config_email=config_email)
+
+        assunto = request.form.get("assunto", "").strip() or "📊 Relatório Gerencial — Ateliê Haiti"
+        mensagem = request.form.get("mensagem", "").strip()
+
+        # Gerar anexos
+        anexos = []
+        if tipo_relatorio in ("financeiro_pdf", "ambos"):
+            try:
+                pdf_bytes = gerar_pdf_financeiro_bytes()
+                anexos.append({"nome": f"relatorio_financeiro_{agora().strftime('%Y%m%d_%H%M')}.pdf", "bytes": pdf_bytes, "mimetype": "application/pdf"})
+            except Exception as e:
+                flash(f"Erro ao gerar PDF: {e}")
+                return render_template("relatorios_email_enviar.html", usuarios=usuarios_lista, config_email=config_email)
+
+        if tipo_relatorio in ("completo_xlsx", "ambos"):
+            try:
+                xlsx_bytes = gerar_xlsx_completo_bytes()
+                anexos.append({"nome": f"export_atelie_completo_{agora().strftime('%Y%m%d_%H%M')}.xlsx", "bytes": xlsx_bytes, "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})
+            except Exception as e:
+                flash(f"Erro ao gerar XLSX: {e}")
+                return render_template("relatorios_email_enviar.html", usuarios=usuarios_lista, config_email=config_email)
+
+        if tipo_relatorio == "estoque_baixo_pdf":
+            try:
+                pdf_bytes = gerar_pdf_estoque_baixo_bytes()
+                anexos.append({"nome": f"alerta_estoque_critico_{agora().strftime('%Y%m%d_%H%M')}.pdf", "bytes": pdf_bytes, "mimetype": "application/pdf"})
+            except Exception as e:
+                flash(f"Erro ao gerar PDF de Estoque: {e}")
+                return render_template("relatorios_email_enviar.html", usuarios=usuarios_lista, config_email=config_email)
+
+        corpo_html = gerar_html_email_relatorio(assunto, mensagem, anexos_nomes=[a["nome"] for a in anexos])
+        autor = g.user.get("nome") or g.user.get("username") if g.get("user") else "Usuário"
+        remetente_uid = g.user.get("id") if g.get("user") else None
+
+        res = enviar_email(
+            destinatarios=todos_destinatarios,
+            assunto=assunto,
+            corpo_html=corpo_html,
+            anexos=anexos,
+            texto_puro=mensagem,
+            remetente_user_id=remetente_uid,
+            tipo_relatorio=tipo_relatorio,
+            enviado_por=autor
+        )
+
+        if res.get("success"):
+            if res.get("simulated"):
+                flash(f"✅ Relatório preparado com sucesso! (Modo Simulação gravado no Histórico de Envios para {len(todos_destinatarios)} destinatário(s)).")
+            else:
+                flash(f"✅ Relatório enviado com sucesso via Gmail para {len(todos_destinatarios)} destinatário(s)!")
+            return redirect(url_for("historico_emails"))
+        else:
+            flash(f"Falha no envio de e-mail: {res.get('error')}")
+            return render_template("relatorios_email_enviar.html", usuarios=usuarios_lista, config_email=config_email)
+
+    return render_template("relatorios_email_enviar.html", usuarios=usuarios_lista, config_email=config_email)
+
+
+@app.route("/relatorios/agendamentos")
+@requires_permission("relatorios", "read")
+def agendamentos_email_listar():
+    agendamentos = carregar_agendamentos_email()
+    config_email = obter_configuracoes_email()
+    return render_template("agendamentos_email.html", agendamentos=agendamentos, config_email=config_email)
+
+
+@app.route("/relatorios/agendamentos/novo", methods=["GET", "POST"])
+@requires_permission("relatorios", "create")
+def agendamentos_email_novo():
+    usuarios_lista = carregar_usuarios()
+
+    if request.method == "POST":
+        titulo = request.form.get("titulo", "").strip()
+        tipo_relatorio = request.form.get("tipo_relatorio", "financeiro_pdf")
+        frequencia = request.form.get("frequencia", "semanal")
+        hora_envio = request.form.get("hora_envio", "08:00").strip()
+        dia_semana = int(request.form.get("dia_semana", 0)) if request.form.get("dia_semana") else 0
+        dia_mes = int(request.form.get("dia_mes", 1)) if request.form.get("dia_mes") else 1
+        
+        dest_usuarios = request.form.getlist("destinatarios_usuarios")
+        dest_extras_raw = request.form.get("destinatarios_extras", "")
+        dest_extras = [e.strip() for e in re.split(r"[,;]", dest_extras_raw) if e.strip()]
+        todos_destinatarios = list(dict.fromkeys(dest_usuarios + dest_extras))
+
+        if not titulo:
+            flash("O título da programação é obrigatório.")
+            return render_template("agendamento_form.html", usuarios=usuarios_lista)
+        if not todos_destinatarios:
+            flash("Informe ao menos um destinatário para a programação.")
+            return render_template("agendamento_form.html", usuarios=usuarios_lista)
+
+        for email_check in todos_destinatarios:
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_check):
+                flash(f"E-mail inválido: {email_check}")
+                return render_template("agendamento_form.html", usuarios=usuarios_lista)
+
+        assunto = request.form.get("assunto", "").strip()
+        mensagem = request.form.get("mensagem", "").strip()
+        ativo = 1 if request.form.get("ativo") == "1" else 0
+        
+        now = agora().isoformat()
+        prox = calcular_proximo_envio(frequencia, hora_envio, dia_semana, dia_mes, a_partir_de=agora())
+        aid = str(uuid.uuid4())
+        criador = g.user.get("username") if g.get("user") else "Admin"
+        remetente_uid = g.user.get("id") if g.get("user") else None
+
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO agendamentos_email 
+                    (id, titulo, tipo_relatorio, frequencia, hora_envio, dia_semana, dia_mes, destinatarios, assunto, mensagem, ativo, proximo_envio, criado_por, usuario_remetente_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (aid, titulo, tipo_relatorio, frequencia, hora_envio, dia_semana, dia_mes, ", ".join(todos_destinatarios), assunto, mensagem, ativo, prox.isoformat(), criador, remetente_uid, now, now)
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                flash("Erro ao cadastrar agendamento: " + str(e))
+                return render_template("agendamento_form.html", usuarios=usuarios_lista)
+            finally:
+                conn.close()
+
+        flash("Programação de envio regular criada com sucesso!")
+        return redirect(url_for("agendamentos_email_listar"))
+
+    return render_template("agendamento_form.html", usuarios=usuarios_lista)
+
+
+@app.route("/relatorios/agendamentos/<agendamento_id>/editar", methods=["GET", "POST"])
+@requires_permission("relatorios", "update")
+def agendamentos_email_editar(agendamento_id):
+    usuarios_lista = carregar_usuarios()
+    agendamento = carregar_agendamento_por_id(agendamento_id)
+    if not agendamento:
+        flash("Agendamento não encontrado.")
+        return redirect(url_for("agendamentos_email_listar"))
+
+    if request.method == "POST":
+        titulo = request.form.get("titulo", "").strip()
+        tipo_relatorio = request.form.get("tipo_relatorio", "financeiro_pdf")
+        frequencia = request.form.get("frequencia", "semanal")
+        hora_envio = request.form.get("hora_envio", "08:00").strip()
+        dia_semana = int(request.form.get("dia_semana", 0)) if request.form.get("dia_semana") else 0
+        dia_mes = int(request.form.get("dia_mes", 1)) if request.form.get("dia_mes") else 1
+        
+        dest_usuarios = request.form.getlist("destinatarios_usuarios")
+        dest_extras_raw = request.form.get("destinatarios_extras", "")
+        dest_extras = [e.strip() for e in re.split(r"[,;]", dest_extras_raw) if e.strip()]
+        todos_destinatarios = list(dict.fromkeys(dest_usuarios + dest_extras))
+
+        if not titulo:
+            flash("O título da programação é obrigatório.")
+            return render_template("agendamento_form.html", usuarios=usuarios_lista, agendamento=agendamento)
+        if not todos_destinatarios:
+            flash("Informe ao menos um destinatário para a programação.")
+            return render_template("agendamento_form.html", usuarios=usuarios_lista, agendamento=agendamento)
+
+        for email_check in todos_destinatarios:
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_check):
+                flash(f"E-mail inválido: {email_check}")
+                return render_template("agendamento_form.html", usuarios=usuarios_lista, agendamento=agendamento)
+
+        assunto = request.form.get("assunto", "").strip()
+        mensagem = request.form.get("mensagem", "").strip()
+        ativo = 1 if request.form.get("ativo") == "1" else 0
+        
+        now = agora().isoformat()
+        prox = calcular_proximo_envio(frequencia, hora_envio, dia_semana, dia_mes, a_partir_de=agora())
+        remetente_uid = g.user.get("id") if g.get("user") else agendamento.get("usuario_remetente_id")
+
+        if USE_SQLITE:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """
+                    UPDATE agendamentos_email 
+                    SET titulo=?, tipo_relatorio=?, frequencia=?, hora_envio=?, dia_semana=?, dia_mes=?, destinatarios=?, assunto=?, mensagem=?, ativo=?, proximo_envio=?, usuario_remetente_id=?, updated_at=?
+                    WHERE id=?
+                    """,
+                    (titulo, tipo_relatorio, frequencia, hora_envio, dia_semana, dia_mes, ", ".join(todos_destinatarios), assunto, mensagem, ativo, prox.isoformat(), remetente_uid, now, agendamento_id)
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                flash("Erro ao salvar agendamento: " + str(e))
+                return render_template("agendamento_form.html", usuarios=usuarios_lista, agendamento=agendamento)
+            finally:
+                conn.close()
+
+        flash("Programação atualizada com sucesso!")
+        return redirect(url_for("agendamentos_email_listar"))
+
+    return render_template("agendamento_form.html", usuarios=usuarios_lista, agendamento=agendamento)
+
+
+@app.route("/relatorios/agendamentos/<agendamento_id>/toggle", methods=["POST"])
+@requires_permission("relatorios", "update")
+def agendamentos_email_toggle(agendamento_id):
+    agendamento = carregar_agendamento_por_id(agendamento_id)
+    if not agendamento:
+        flash("Agendamento não encontrado.")
+        return redirect(url_for("agendamentos_email_listar"))
+
+    novo_status = 0 if agendamento.get("ativo") else 1
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("UPDATE agendamentos_email SET ativo=?, updated_at=? WHERE id=?", (novo_status, agora().isoformat(), agendamento_id))
+        conn.commit()
+        conn.close()
+
+    msg = "🟢 Programação ativada!" if novo_status else "⏸️ Programação pausada!"
+    flash(msg)
+    return redirect(url_for("agendamentos_email_listar"))
+
+
+@app.route("/relatorios/agendamentos/<agendamento_id>/executar", methods=["POST"])
+@requires_permission("relatorios", "read")
+def agendamentos_email_executar(agendamento_id):
+    agendamento = carregar_agendamento_por_id(agendamento_id)
+    if not agendamento:
+        flash("Agendamento não encontrado.")
+        return redirect(url_for("agendamentos_email_listar"))
+
+    autor = g.user.get("nome") or g.user.get("username") if g.get("user") else "Usuário"
+    res = executar_agendamento(agendamento, disparado_por=f"{autor} (Manual)")
+
+    if res.get("success"):
+        flash("✅ Agendamento executado com sucesso e e-mail registrado!")
+    else:
+        flash(f"Falha na execução: {res.get('error')}")
+
+    return redirect(url_for("historico_emails"))
+
+
+@app.route("/relatorios/agendamentos/<agendamento_id>/excluir", methods=["POST"])
+@requires_permission("relatorios", "delete")
+def agendamentos_email_excluir(agendamento_id):
+    if USE_SQLITE:
+        init_db()
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM agendamentos_email WHERE id=?", (agendamento_id,))
+        conn.commit()
+        conn.close()
+
+    flash("Programação de envio regular excluída com sucesso.")
+    return redirect(url_for("agendamentos_email_listar"))
+
+
+@app.route("/relatorios/historico-emails")
+@requires_permission("relatorios", "read")
+def historico_emails():
+    historico = carregar_historico_emails(100)
+    return render_template("historico_emails.html", historico=historico)
+
+
+@app.route("/configuracoes/email", methods=["GET", "POST"])
+@requires_permission("relatorios", "create")
+def configuracoes_email_view():
+    return redirect(url_for("configuracoes_sso_view"))
+
+
+@app.route("/configuracoes/email/testar", methods=["POST"])
+@requires_permission("relatorios", "create")
+def configuracoes_email_testar():
+    email_teste = request.form.get("email_teste", "").strip().lower()
+    if not email_teste or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_teste):
+        flash("Informe um e-mail válido para receber o teste.")
+        return redirect(url_for("configuracoes_sso_view"))
+
+    try:
+        pdf_bytes = gerar_pdf_financeiro_bytes()
+        anexos = [{"nome": "teste_relatorio_atelie.pdf", "bytes": pdf_bytes, "mimetype": "application/pdf"}]
+    except Exception:
+        anexos = []
+
+    corpo = gerar_html_email_relatorio("🧪 Teste de Conexão Gmail API", "Este é um disparo de teste para validação do serviço de e-mails do Ateliê Haiti via Gmail API.", anexos_nomes=[a["nome"] for a in anexos])
+    res = enviar_email(
+        destinatarios=[email_teste],
+        assunto="🧪 Teste de Envio via Gmail API — Ateliê Haiti",
+        corpo_html=corpo,
+        anexos=anexos,
+        texto_puro="Teste de envio de e-mail do sistema Ateliê Haiti via Gmail API.",
+        remetente_user_id=g.user.get("id") if g.get("user") else None,
+        tipo_relatorio="Teste",
+        enviado_por=g.user.get("username") if g.get("user") else "Admin"
+    )
+
+    if res.get("success"):
+        if res.get("simulated"):
+            flash(f"✅ Teste concluído com sucesso em Modo Simulação para {email_teste}!")
+        else:
+            flash(f"✅ E-mail de teste enviado com sucesso via Gmail API para {email_teste}!")
+    else:
+        flash(f"Falha no teste de envio: {res.get('error')}")
+
+    return redirect(url_for("configuracoes_sso_view"))
+
+
+# Inicia o agendador em background na inicialização do servidor
+iniciar_agendador_background()
 
 
 # ── Chatbot Ania (Assistente Virtual com Voz, Texto e RBAC) ───────────────────

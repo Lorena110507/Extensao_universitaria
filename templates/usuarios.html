@@ -50,7 +50,15 @@
           {% endif %}
         </div>
         
-        <div style="margin-top:4px; font-size:14px; color:var(--muted);">
+        <div style="margin-top:4px; font-size:14px; color:var(--muted); display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+          {% if u.email %}
+            <span style="color:var(--primary); font-weight:600; display:inline-flex; align-items:center; gap:4px;">
+              ✉️ {{ u.email }}
+            </span>
+          {% else %}
+            <span style="color:var(--muted); font-style:italic;">(sem e-mail cadastrado)</span>
+          {% endif %}
+          <span style="color:var(--border);">•</span>
           {% if 'Admin' in uroles %}
             <span style="color:var(--success); font-weight:600;">Acesso Total a Todas as Abas</span>
           {% elif uroles %}

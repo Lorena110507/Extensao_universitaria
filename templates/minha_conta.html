@@ -52,7 +52,7 @@
       </div>
     </div>
 
-    <!-- Campos de Nome e Login -->
+    <!-- Campos de Nome, E-mail e Login -->
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px;">
       <div>
         <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
@@ -60,6 +60,14 @@
         </label>
         <input name="nome" value="{{ user.nome or '' }}" class="input-vintage"
                placeholder="Ex: Maria Silva, João Artesão">
+      </div>
+
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+          E-mail de Contato &amp; Relatórios
+        </label>
+        <input name="email" type="email" value="{{ user.email or '' }}" class="input-vintage"
+               placeholder="Ex: seuemail@exemplo.com">
       </div>
 
       <div>

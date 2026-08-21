@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Envios Regulares Programados" %}
+{% set subtitulo = "Automação de Relatórios por E-mail" %}
+{% block conteudo %}
+
+<!-- Header & Ações -->
+<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
+  <div>
+    <h2 class="font-serif" style="margin:0; font-size:22px; color:var(--primary); font-weight:800;">⏰ Programação de Envios Regulares</h2>
+    <p class="font-crimson" style="margin:2px 0 0 0; font-size:15px; color:var(--muted); font-style:italic;">
+      Automatize o envio periódico de balanços, relatórios financeiros e planilhas por e-mail
+    </p>
+  </div>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    {% if has_permission('relatorios', 'create') %}
+    <a href="{{ url_for('agendamentos_email_novo') }}" class="btn-primary" style="padding:8px 14px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
+      ➕ Nova Programação
+    </a>
+    {% endif %}
+    <a href="{{ url_for('relatorios_enviar_email') }}" class="btn-secondary" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
+      ✉️ Enviar Agora (Manual)
+    </a>
+    <a href="{{ url_for('historico_emails') }}" class="btn-ghost" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
+      📜 Histórico
+    </a>
+    <a href="{{ url_for('alertas') }}" class="btn-ghost" style="padding:8px 12px; font-size:15px; min-height:36px;">
+      ← Central de Relatórios
+    </a>
+  </div>
+</div>
+
+<!-- KPIs Rápidos -->
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; margin-bottom:22px;">
+  <div class="card" style="padding:12px 14px; text-align:center; border-top:3px solid var(--primary);">
+    <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic; margin:0;">Total de Regras</p>
+    <p class="font-serif" style="font-size:24px; font-weight:800; color:var(--primary); margin:4px 0 0 0;">{{ agendamentos|length }}</p>
+  </div>
+  <div class="card" style="padding:12px 14px; text-align:center; border-top:3px solid var(--success);">
+    <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic; margin:0;">Regras Ativas</p>
+    {% set ativos = agendamentos|selectattr('ativo')|list %}
+    <p class="font-serif" style="font-size:24px; font-weight:800; color:var(--success); margin:4px 0 0 0;">{{ ativos|length }}</p>
+  </div>
+  <div class="card" style="padding:12px 14px; text-align:center; border-top:3px solid var(--accent);">
+    <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic; margin:0;">Regras Pausadas</p>
+    <p class="font-serif" style="font-size:24px; font-weight:800; color:var(--accent); margin:4px 0 0 0;">{{ (agendamentos|length) - (ativos|length) }}</p>
+  </div>
+  <div class="card" style="padding:12px 14px; text-align:center; border-top:3px solid #5c2d0e;">
+    <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic; margin:0;">Servidor de Envio</p>
+    <p class="font-serif" style="font-size:16px; font-weight:700; color:var(--primary); margin:8px 0 0 0;">
+      {% if config_email.modo_simulacao or not config_email.smtp_host %}
+        🟡 Simulação (Log)
+      {% else %}
+        🟢 SMTP Conectado
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+<!-- Lista de Agendamentos -->
+{% if not agendamentos %}
+  <div class="card" style="padding:32px 20px; text-align:center; background:rgba(124,61,18,0.02); border:1px dashed var(--border);">
+    <p style="font-size:36px; margin:0 0 10px 0;">⏰</p>
+    <h3 class="font-serif" style="font-size:18px; color:var(--primary); margin:0 0 6px 0; font-weight:700;">
+      Nenhuma programação de envio regular cadastrada
+    </h3>
+    <p class="font-crimson" style="font-size:15px; color:var(--muted); font-style:italic; max-width:480px; margin:0 auto 16px auto;">
+      Crie agendamentos automáticos para que a diretoria, financeiro e equipe recebam relatórios periódicos em PDF ou Excel sem intervenção manual.
+    </p>
+    {% if has_permission('relatorios', 'create') %}
+    <a href="{{ url_for('agendamentos_email_novo') }}" class="btn-primary" style="display:inline-block; padding:10px 20px; font-size:15px;">
+      ➕ Criar Primeira Programação Regular
+    </a>
+    {% endif %}
+  </div>
+{% else %}
+  <div style="display:grid; gap:14px;">
+    {% for ag in agendamentos %}
+    <div class="card" style="padding:18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; border-left:4px solid {{ 'var(--success)' if ag.ativo else 'var(--muted)' }};">
+      
+      <div style="flex:1; min-width:260px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+          <h3 class="font-serif" style="margin:0; font-size:17px; color:var(--primary); font-weight:700;">
+            {{ ag.titulo }}
+          </h3>
+          
+          <!-- Badge de Status Ativo/Pausado -->
+          {% if ag.ativo %}
+            <span class="badge" style="background:#E8F5E9; color:#2E7D32; font-weight:700; padding:3px 8px; border-radius:12px; font-size:12px;">
+              🟢 Ativo
+            </span>
+          {% else %}
+            <span class="badge" style="background:#ECEFF1; color:#78909C; font-weight:700; padding:3px 8px; border-radius:12px; font-size:12px;">
+              ⏸️ Pausado
+            </span>
+          {% endif %}
+
+          <!-- Badge do Tipo de Relatório -->
+          {% if ag.tipo_relatorio == 'financeiro_pdf' %}
+            <span class="badge" style="background:rgba(124,61,18,0.08); color:var(--primary); font-size:12px; padding:3px 8px; border-radius:8px;">
+              📄 PDF Financeiro
+            </span>
+          {% elif ag.tipo_relatorio == 'completo_xlsx' %}
+            <span class="badge" style="background:#E8F5E9; color:#1B5E20; font-size:12px; padding:3px 8px; border-radius:8px;">
+              📊 Planilha Excel
+            </span>
+          {% elif ag.tipo_relatorio == 'estoque_baixo_pdf' %}
+            <span class="badge" style="background:#FFEBEE; color:#C62828; font-size:12px; padding:3px 8px; border-radius:8px;">
+              ⚠️ Estoque Crítico PDF
+            </span>
+          {% else %}
+            <span class="badge" style="background:#FFF3E0; color:#E65100; font-size:12px; padding:3px 8px; border-radius:8px;">
+              📦 PDF + Excel
+            </span>
+          {% endif %}
+        </div>
+
+        <!-- Linha de Periodicidade e Horário -->
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:14px; color:var(--text); margin-bottom:6px;">
+          <span>
+            🗓️ <strong>Periodicidade:</strong> 
+            {% if ag.frequencia == 'diario' %}
+              Diariamente às {{ ag.hora_envio }}
+            {% elif ag.frequencia == 'semanal' %}
+              {% set dias = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'] %}
+              Toda {{ dias[ag.dia_semana|int] if ag.dia_semana is not none else 'Segunda' }} às {{ ag.hora_envio }}
+            {% elif ag.frequencia == 'mensal' %}
+              Todo dia {{ ag.dia_mes }} do mês às {{ ag.hora_envio }}
+            {% endif %}
+          </span>
+
+          <span>•</span>
+
+          <span>
+            👥 <strong>Destinatários:</strong> {{ ag.destinatarios }}
+          </span>
+        </div>
+
+        <!-- Linha de Próximo e Último Envio -->
+        <div style="font-size:13.5px; color:var(--muted); display:flex; flex-wrap:wrap; gap:14px;">
+          {% if ag.proximo_envio %}
+            <span>⏳ <strong>Próximo envio:</strong> {{ (ag.proximo_envio or '')[:16]|replace('T', ' ') }}</span>
+          {% endif %}
+          {% if ag.ultimo_envio %}
+            <span>🕒 <strong>Último envio:</strong> {{ (ag.ultimo_envio or '')[:16]|replace('T', ' ') }}</span>
+          {% else %}
+            <span style="font-style:italic;">Nenhum envio realizado ainda</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Botões de Ação do Agendamento -->
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <!-- Executar Imediatamente -->
+        <form method="post" action="{{ url_for('agendamentos_email_executar', agendamento_id=ag.id) }}" onsubmit="return confirm('Deseja executar este agendamento agora e enviar o relatório aos destinatários?');" style="margin:0;">
+          <button type="submit" class="btn-primary" style="padding:6px 12px; font-size:14px; min-height:34px; display:inline-flex; align-items:center; gap:4px;">
+            ▶️ Enviar Agora
+          </button>
+        </form>
+
+        <!-- Pausar / Ativar -->
+        <form method="post" action="{{ url_for('agendamentos_email_toggle', agendamento_id=ag.id) }}" style="margin:0;">
+          <button type="submit" class="btn-ghost" style="padding:6px 12px; font-size:14px; min-height:34px;">
+            {% if ag.ativo %}⏸️ Pausar{% else %}▶️ Ativar{% endif %}
+          </button>
+        </form>
+
+        {% if has_permission('relatorios', 'update') %}
+        <a href="{{ url_for('agendamentos_email_editar', agendamento_id=ag.id) }}" class="btn-ghost" style="padding:6px 10px; font-size:14px; min-height:34px;" title="Editar">
+          ✏️
+        </a>
+        {% endif %}
+
+        {% if has_permission('relatorios', 'delete') %}
+        <form method="post" action="{{ url_for('agendamentos_email_excluir', agendamento_id=ag.id) }}" onsubmit="return confirm('Deseja excluir esta regra de agendamento?');" style="margin:0;">
+          <button type="submit" class="btn-ghost" style="padding:6px 10px; font-size:14px; min-height:34px; color:var(--danger); border-color:var(--danger-lt);" title="Excluir">
+            🗑️
+          </button>
+        </form>
+        {% endif %}
+      </div>
+
+    </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% endblock %}

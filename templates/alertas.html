@@ -14,11 +14,17 @@
       ➕ Criar Relatório
     </a>
     {% endif %}
-    <a href="{{ url_for('exportar_financeiro_pdf') }}" class="btn-secondary" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
-      📄 Baixar PDF
+    <a href="{{ url_for('relatorios_enviar_email') }}" class="btn-secondary" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
+      ✉️ Enviar por E-mail
     </a>
-    <a href="{{ url_for('exportar_tudo_xlsx') }}" class="btn-secondary" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
-      📊 Baixar Excel
+    <a href="{{ url_for('agendamentos_email_listar') }}" class="btn-secondary" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
+      ⏰ Envios Regulares
+    </a>
+    <a href="{{ url_for('exportar_financeiro_pdf') }}" class="btn-ghost" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;" title="Baixar arquivo PDF">
+      📄 PDF
+    </a>
+    <a href="{{ url_for('exportar_tudo_xlsx') }}" class="btn-ghost" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;" title="Baixar planilha Excel">
+      📊 Excel
     </a>
   </div>
 </div>

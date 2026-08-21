@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Configurações de E-mail" %}
+{% set subtitulo = "Servidor SMTP & Modo de Envio" %}
+{% block conteudo %}
+
+<div style="margin-bottom:18px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+    <div>
+      <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">⚙️ Configurações de E-mail (SMTP)</h3>
+      <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+        Configure o servidor de envio para disparar relatórios reais ou utilize o modo de simulação
+      </p>
+    </div>
+    <a href="{{ url_for('agendamentos_email_listar') }}" class="btn-ghost" style="padding:6px 12px; font-size:15px; min-height:34px;">
+      ← Voltar aos Agendamentos
+    </a>
+  </div>
+</div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:20px; align-items:start;">
+  
+  <!-- Formulário de Configurações -->
+  <div class="card" style="padding:22px;">
+    <h4 class="font-serif" style="margin:0 0 16px 0; color:var(--primary); font-size:17px;">
+      Dados do Servidor SMTP
+    </h4>
+    
+    <form method="post">
+      <div style="display:grid; grid-template-columns: 2fr 1fr; gap:12px; margin-bottom:14px;">
+        <div>
+          <label style="display:block; font-weight:700; color:var(--primary); font-size:14px; margin-bottom:4px;">
+            Servidor SMTP (Host)
+          </label>
+          <input name="smtp_host" class="input-vintage" value="{{ config_email.smtp_host or '' }}" placeholder="Ex: smtp.gmail.com, smtp.office365.com">
+        </div>
+        <div>
+          <label style="display:block; font-weight:700; color:var(--primary); font-size:14px; margin-bottom:4px;">
+            Porta
+          </label>
+          <input name="smtp_port" type="number" class="input-vintage" value="{{ config_email.smtp_port or 587 }}">
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:14px; margin-bottom:4px;">
+          Segurança da Conexão
+        </label>
+        {% set sel_sec = config_email.smtp_security or 'tls' %}
+        <select name="smtp_security" class="input-vintage">
+          <option value="tls" {% if sel_sec == 'tls' %}selected{% endif %}>TLS / STARTTLS (Recomendado - Porta 587)</option>
+          <option value="ssl" {% if sel_sec == 'ssl' %}selected{% endif %}>SSL Direto (Porta 465)</option>
+          <option value="none" {% if sel_sec == 'none' %}selected{% endif %}>Nenhuma (Não recomendado)</option>
+        </select>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:14px;">
+        <div>
+          <label style="display:block; font-weight:700; color:var(--primary); font-size:14px; margin-bottom:4px;">
+            Usuário / Login SMTP
+          </label>
+          <input name="smtp_user" class="input-vintage" value="{{ config_email.smtp_user or '' }}" placeholder="Ex: contato@ateliehaiti.com">
+        </div>
+        <div>
+          <label style="display:block; font-weight:700; color:var(--primary); font-size:14px; margin-bottom:4px;">
+            Senha / App Password
+          </label>
+          <input name="smtp_pass" type="password" class="input-vintage" value="{{ config_email.smtp_pass or '' }}" placeholder="Senha de app do e-mail">
+        </div>
+      </div>
+
+      <div style="margin-bottom:18px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:14px; margin-bottom:4px;">
+          E-mail Remetente (From)
+        </label>
+        <input name="smtp_from" class="input-vintage" value="{{ config_email.smtp_from or '' }}" placeholder="Ex: Ateliê Haiti &lt;relatorios@ateliehaiti.com&gt;">
+      </div>
+
+      <!-- Modo Simulação -->
+      <div style="margin-bottom:22px; padding:12px; background:rgba(124,61,18,0.04); border-radius:8px; border:1px solid var(--border);">
+        <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; font-size:14.5px;">
+          <input type="checkbox" name="modo_simulacao" value="1" {% if config_email.modo_simulacao %}checked{% endif %}
+                 style="width:18px; height:18px; accent-color:var(--accent); margin-top:2px;">
+          <div>
+            <span style="font-weight:700; color:var(--primary);">Habilitar Modo Simulação (Sem disparo real)</span>
+            <p class="font-crimson" style="margin:2px 0 0 0; font-size:13.5px; color:var(--muted); font-style:italic;">
+              Quando ativo, os e-mails e relatórios são gerados e salvos no histórico sem tentar conexão externa. Ideal para testes locais.
+            </p>
+          </div>
+        </label>
+      </div>
+
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button type="submit" class="btn-primary" style="min-width:180px; padding:12px 24px;">
+          💾 Salvar Configurações
+        </button>
+        <a href="{{ url_for('agendamentos_email_listar') }}" class="btn-ghost" style="padding:12px 20px;">
+          Cancelar
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <!-- Teste de Envio -->
+  <div style="display:flex; flex-direction:column; gap:16px;">
+    <div class="card" style="padding:22px; border-left:4px solid var(--accent);">
+      <h4 class="font-serif" style="margin:0 0 8px 0; color:var(--primary); font-size:17px;">
+        🧪 Testar Conexão e Envio
+      </h4>
+      <p class="font-crimson" style="margin:0 0 14px 0; font-size:14px; color:var(--muted); font-style:italic;">
+        Envie um e-mail de teste com relatório anexo para validar se as credenciais SMTP estão funcionando corretamente.
+      </p>
+
+      <form method="post" action="{{ url_for('configuracoes_email_testar') }}">
+        <div style="margin-bottom:14px;">
+          <label style="display:block; font-weight:700; color:var(--primary); font-size:14px; margin-bottom:4px;">
+            E-mail para Receber o Teste <span style="color:var(--danger);">*</span>
+          </label>
+          <input name="email_teste" type="email" required class="input-vintage"
+                 value="{{ g.user.get('email') if g.get('user') and g.user.get('email') else '' }}"
+                 placeholder="Ex: seuemail@exemplo.com">
+        </div>
+
+        <button type="submit" class="btn-secondary" style="width:100%; padding:10px 16px; font-size:15px; font-weight:700;">
+          🚀 Disparar E-mail de Teste
+        </button>
+      </form>
+    </div>
+
+    <div class="card" style="padding:18px; background:rgba(124,61,18,0.02);">
+      <h4 class="font-serif" style="margin:0 0 6px 0; color:var(--primary); font-size:15px;">
+        💡 Dica para Gmail ou Outlook
+      </h4>
+      <p class="font-crimson" style="margin:0; font-size:13.5px; color:var(--text); line-height:1.4;">
+        No Gmail, ative a <em>Verificação em 2 etapas</em> e crie uma <strong>Senha de App</strong> específica para o Ateliê Haiti nas configurações de segurança do Google.
+      </p>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
