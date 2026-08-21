@@ -64,16 +64,13 @@
       {% endif %}
       {% if can_access_tab('relatorios') %}
       <a class="drawer-link {{ 'active' if request.path.startswith('/alertas') }}" href="{{ url_for('alertas') }}"><span class="ic">📊</span> Alertas e Relatórios</a>
-      <a class="drawer-link {{ 'active' if request.path.startswith('/relatorios/enviar-email') }}" href="{{ url_for('relatorios_enviar_email') }}"><span class="ic">✉️</span> Enviar por E-mail</a>
-      <a class="drawer-link {{ 'active' if request.path.startswith('/relatorios/agendamentos') }}" href="{{ url_for('agendamentos_email_listar') }}"><span class="ic">⏰</span> Envios Regulares</a>
-      <a class="drawer-link {{ 'active' if request.path.startswith('/relatorios/historico-emails') }}" href="{{ url_for('historico_emails') }}"><span class="ic">📜</span> Histórico de Envios</a>
+      <a class="drawer-link {{ 'active' if request.path.startswith('/relatorios/enviar-email') or request.path.startswith('/relatorios/agendamentos') or request.path.startswith('/relatorios/historico-emails') or request.path.startswith('/emails') or request.path.startswith('/configuracoes/sso') or request.path.startswith('/configuracoes/email') }}" href="{{ url_for('central_emails') }}"><span class="ic">✉️</span> Central de E-mails</a>
       {% endif %}
       {% if can_access_tab('roles') %}
       <a class="drawer-link {{ 'active' if request.path.startswith('/roles') }}" href="{{ url_for('roles') }}"><span class="ic">🔒</span> Papéis &amp; Permissões</a>
       {% endif %}
       {% if can_access_tab('usuarios') %}
       <a class="drawer-link {{ 'active' if request.path.startswith('/usuarios') }}" href="{{ url_for('usuarios') }}"><span class="ic">👥</span> Usuários</a>
-      <a class="drawer-link {{ 'active' if request.path.startswith('/configuracoes/sso') }}" href="{{ url_for('configuracoes_sso_view') }}"><span class="ic">🔑</span> Google SSO &amp; Gmail</a>
       {% endif %}
     </nav>
     <div class="drawer-footer">

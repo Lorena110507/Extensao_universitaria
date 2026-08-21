@@ -597,3 +597,23 @@ input, select, textarea, button {
 .btn-scan:active {
   transform: scale(0.98);
 }
+
+/* ── Central de E-mails: Subnav Tabs ────────────────────────────────── */
+.subtab-link {
+  color: var(--muted) !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  min-height: 38px !important;
+  transition: all 0.2s ease !important;
+}
+.subtab-link:hover {
+  background: rgba(124, 61, 18, 0.08) !important;
+  color: var(--primary) !important;
+}
+.subtab-link.active-subtab {
+  background: var(--primary) !important;
+  color: #ffffff !important;
+  border-color: var(--primary-dk) !important;
+  box-shadow: 0 3px 8px rgba(124, 61, 18, 0.3) !important;
+}
+

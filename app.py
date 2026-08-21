@@ -5646,6 +5646,12 @@ def iniciar_agendador_background():
 
 # ── Rotas de Envio de Relatórios e Agendamentos por E-mail ────────────────────
 
+@app.route("/emails")
+@requires_permission("relatorios", "read")
+def central_emails():
+    return redirect(url_for("relatorios_enviar_email"))
+
+
 @app.route("/relatorios/enviar-email", methods=["GET", "POST"])
 @requires_permission("relatorios", "read")
 def relatorios_enviar_email():

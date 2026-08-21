@@ -1,27 +1,10 @@
 {% extends "base.html" %}
-{% set titulo_pagina = "Histórico de Envios de E-mail" %}
-{% set subtitulo = "Auditoria e Log de Disparos de Relatórios" %}
+{% set titulo_pagina = "Central de E-mails · Histórico" %}
+{% set subtitulo = "Auditoria e Log de Disparos de Relatórios por E-mail" %}
+{% set aba_email = "historico" %}
 {% block conteudo %}
 
-<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
-  <div>
-    <h2 class="font-serif" style="margin:0; font-size:22px; color:var(--primary); font-weight:800;">📜 Histórico de Envios de E-mail</h2>
-    <p class="font-crimson" style="margin:2px 0 0 0; font-size:15px; color:var(--muted); font-style:italic;">
-      Registro cronológico de todos os relatórios disparados manual ou automaticamente
-    </p>
-  </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <a href="{{ url_for('relatorios_enviar_email') }}" class="btn-primary" style="padding:8px 14px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
-      ✉️ Novo Envio
-    </a>
-    <a href="{{ url_for('agendamentos_email_listar') }}" class="btn-secondary" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
-      ⏰ Programações Regulares
-    </a>
-    <a href="{{ url_for('alertas') }}" class="btn-ghost" style="padding:8px 12px; font-size:15px; min-height:36px;">
-      ← Central de Relatórios
-    </a>
-  </div>
-</div>
+{% include "email_subnav.html" %}
 
 {% if not historico %}
   <div class="card" style="padding:32px 20px; text-align:center; background:rgba(124,61,18,0.02); border:1px dashed var(--border);">

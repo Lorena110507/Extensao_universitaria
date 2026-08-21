@@ -1,27 +1,10 @@
 {% extends "base.html" %}
-{% set titulo_pagina = "Enviar Relatório por E-mail" %}
-{% set subtitulo = "Disparo Imediato de Balanços e Planilhas" %}
+{% set titulo_pagina = "Central de E-mails · Enviar" %}
+{% set subtitulo = "Disparo Imediato de Balanços e Planilhas por E-mail" %}
+{% set aba_email = "enviar" %}
 {% block conteudo %}
 
-<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:20px;">
-  <div>
-    <h2 class="font-serif" style="margin:0; font-size:22px; color:var(--primary); font-weight:800;">✉️ Enviar Relatórios por E-mail</h2>
-    <p class="font-crimson" style="margin:2px 0 0 0; font-size:15px; color:var(--muted); font-style:italic;">
-      Selecione os relatórios em PDF ou Excel e envie diretamente aos colaboradores e gestores
-    </p>
-  </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <a href="{{ url_for('agendamentos_email_listar') }}" class="btn-secondary" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
-      ⏰ Programar Envios Regulares
-    </a>
-    <a href="{{ url_for('historico_emails') }}" class="btn-ghost" style="padding:8px 12px; font-size:15px; min-height:36px; display:inline-flex; align-items:center; gap:6px;">
-      📜 Histórico de Envios
-    </a>
-    <a href="{{ url_for('alertas') }}" class="btn-ghost" style="padding:8px 12px; font-size:15px; min-height:36px;">
-      ← Voltar aos Relatórios
-    </a>
-  </div>
-</div>
+{% include "email_subnav.html" %}
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:20px; align-items:start;">
   

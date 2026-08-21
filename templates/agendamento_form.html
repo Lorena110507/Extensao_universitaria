@@ -2,7 +2,10 @@
 {% set is_edit = (agendamento is defined and agendamento.id) %}
 {% set titulo_pagina = "Editar Programação" if is_edit else "Nova Programação Regular" %}
 {% set subtitulo = "Agendamento Automático de Relatórios por E-mail" %}
+{% set aba_email = "agendamentos" %}
 {% block conteudo %}
+
+{% include "email_subnav.html" %}
 
 <div style="margin-bottom:18px;">
   <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
