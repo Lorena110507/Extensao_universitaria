@@ -30,9 +30,9 @@
         </label>
         <input name="name" value="{{ role.name if role else '' }}" required class="input-vintage"
                placeholder="Ex: Almoxarife, Gerente de Vendas"
-               {% if role and role.name == 'Admin' %}readonly style="background:rgba(0,0,0,0.03); cursor:not-allowed;"{% endif %}>
-        {% if role and role.name == 'Admin' %}
-        <span style="font-size:13px; color:var(--muted);">O nome do papel Administrador não pode ser alterado.</span>
+               {% if role and role.name in ('Admin', 'Developer') %}readonly style="background:rgba(0,0,0,0.03); cursor:not-allowed;"{% endif %}>
+        {% if role and role.name in ('Admin', 'Developer') %}
+        <span style="font-size:13px; color:var(--muted);">O nome dos papéis canônicos do sistema não pode ser alterado.</span>
         {% endif %}
       </div>
 
@@ -46,11 +46,18 @@
     </div>
   </div>
 
-  {% if role and role.name == 'Admin' %}
+  {% if role and role.name == 'Developer' %}
+  <div class="card" style="padding:16px; margin-bottom:18px; border-left:4px solid #2C1810; background:#fff9ee;">
+    <p style="margin:0; font-weight:700; color:var(--primary);">🛠️ Desenvolvedor do Sistema (Developer Hub)</p>
+    <p class="font-crimson" style="margin:4px 0 0 0; font-size:15px; color:var(--muted);">
+      O papel <strong>Developer</strong> possui acesso irrestrito a todas as abas de negócio e controle exclusivo das configurações técnicas avançadas (Developer Hub). Suas permissões são canônicas e ativas em todo o sistema.
+    </p>
+  </div>
+  {% elif role and role.name == 'Admin' %}
   <div class="card" style="padding:16px; margin-bottom:18px; border-left:4px solid var(--primary); background:#fff9ee;">
     <p style="margin:0; font-weight:700; color:var(--primary);">👑 Administrador do Sistema</p>
     <p class="font-crimson" style="margin:4px 0 0 0; font-size:15px; color:var(--muted);">
-      O papel <strong>Admin</strong> possui acesso irrestrito e automático a todas as abas e operações (CRUD completo). Suas permissões não precisam ser alteradas manualmente.
+      O papel <strong>Admin</strong> possui acesso irrestrito e automático a todas as abas de negócio e operações (CRUD completo).
     </p>
   </div>
   {% else %}
@@ -101,6 +108,7 @@
         </thead>
         <tbody>
           {% for tab in system_tabs %}
+          {% if tab.id != 'developer' or is_user_developer(g.user) %}
           {% set p = role.permissions.get(tab.id, {}) if role else {} %}
           <tr style="border-bottom:1px solid var(--border); transition:background .1s;" id="row_{{ tab.id }}" onmouseover="this.style.background='rgba(253,233,194,0.15)'" onmouseout="this.style.background='transparent'">
             <td style="padding:12px 12px;">
@@ -144,6 +152,7 @@
                      onchange="onCheckChange('{{ tab.id }}')">
             </td>
           </tr>
+          {% endif %}
           {% endfor %}
         </tbody>
       </table>

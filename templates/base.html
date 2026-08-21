@@ -72,6 +72,9 @@
       {% if can_access_tab('usuarios') %}
       <a class="drawer-link {{ 'active' if request.path.startswith('/usuarios') }}" href="{{ url_for('usuarios') }}"><span class="ic">👥</span> Usuários</a>
       {% endif %}
+      {% if can_access_tab('developer') %}
+      <a class="drawer-link {{ 'active' if request.path.startswith('/developer') or request.path.startswith('/dev') }}" href="{{ url_for('developer_dashboard') }}" style="border-left: 3px solid var(--primary); font-weight: 700;"><span class="ic">🛠️</span> Developer Hub</a>
+      {% endif %}
     </nav>
     <div class="drawer-footer">
       <div class="ornament">✦ ✦ ✦</div>

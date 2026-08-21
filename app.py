@@ -193,11 +193,31 @@ def usuario_roles_lista(user):
     return [single] if single else []
 
 
+def is_user_developer(user=None):
+    """Verifica se o usuário fornecido (ou g.user) possui o papel Developer."""
+    target = user
+    if target is None:
+        try:
+            from flask import has_request_context
+            if has_request_context():
+                target = g.get("user")
+        except Exception:
+            target = None
+    if not target or not isinstance(target, dict):
+        return False
+    roles = usuario_roles_lista(target)
+    for r in roles:
+        if str(r).strip().lower() == "developer":
+            return True
+    return False
+
+
 @app.context_processor
 def injetar_helpers_templates():
     """Disponibiliza funções utilitárias para uso direto nos templates."""
     return dict(
         usuario_roles_lista=usuario_roles_lista,
+        is_user_developer=is_user_developer,
         formatar_reais=formatar_reais,
     )
 
@@ -287,6 +307,14 @@ SYSTEM_TABS = [
         "actions": ["read", "create", "update", "delete"],
         "route": "roles",
     },
+    {
+        "id": "developer",
+        "name": "Developer",
+        "emoji": "🛠️",
+        "desc": "Developer Hub: SSO OAuth2, Ollama IA, Banco de Dados, Auditoria e Logs",
+        "actions": ["read", "update"],
+        "route": "developer_dashboard",
+    },
 ]
 
 
@@ -295,11 +323,18 @@ SYSTEM_TABS = [
 def user_has_permission(resource, action):
     """Verifica se o usuário logado (g.user) tem a permissão para a ação no recurso/aba.
     Considera todos os papéis atribuídos ao usuário (múltiplos papéis são permitidos).
+    - Para o recurso 'developer': estritamente exclusivo de quem possui o papel Developer (Admin não acessa).
+    - Para os demais recursos: Developer e Admin têm acesso total irrestrito.
     """
     if not g.get("user"):
         return False
     roles = usuario_roles_lista(g.user)
-    if "Admin" in roles:
+    is_dev = is_user_developer(g.user)
+
+    if resource == "developer":
+        return is_dev
+
+    if is_dev or "Admin" in roles:
         return True
     if not roles:
         return False
@@ -335,7 +370,12 @@ def user_can_access_tab(tab_id):
     if not g.get("user"):
         return False
     roles = usuario_roles_lista(g.user)
-    if "Admin" in roles:
+    is_dev = is_user_developer(g.user)
+
+    if tab_id == "developer":
+        return is_dev
+
+    if is_dev or "Admin" in roles:
         return True
     if not roles:
         return False
@@ -344,15 +384,28 @@ def user_can_access_tab(tab_id):
     return user_has_permission(tab_id, "read")
 
 
+def requires_developer(f):
+    """Decorador para proteger rotas e ações restritas estritamente a Desenvolvedores."""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if not g.get("user"):
+            return redirect(url_for("login", next=request.path))
+        if not is_user_developer(g.user):
+            flash("Acesso negado: esta área técnica é de acesso exclusivo para Desenvolvedores.")
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+    return wrapped
+
+
 def requires_roles(*allowed_roles):
-    """Decorator legado para permitir acesso apenas a papéis específicos ou Admin."""
+    """Decorator legado para permitir acesso apenas a papéis específicos, Admin ou Developer."""
     def decorator(f):
         @wraps(f)
         def wrapped(*args, **kwargs):
             if not g.get("user"):
                 return redirect(url_for("login", next=request.path))
             roles = usuario_roles_lista(g.user)
-            if "Admin" in roles or any(r in allowed_roles for r in roles):
+            if is_user_developer(g.user) or "Admin" in roles or any(r in allowed_roles for r in roles):
                 return f(*args, **kwargs)
             flash("Acesso negado: você não tem permissão para acessar esta área.")
             return redirect(url_for("home"))
@@ -367,7 +420,12 @@ def requires_permission(resource, action):
         def wrapped(*args, **kwargs):
             if not g.get("user"):
                 return redirect(url_for("login", next=request.path))
-            if "Admin" in usuario_roles_lista(g.user):
+            if resource == "developer":
+                if is_user_developer(g.user):
+                    return f(*args, **kwargs)
+                flash("Acesso negado: esta área técnica é de acesso exclusivo para Desenvolvedores.")
+                return redirect(url_for("home"))
+            if is_user_developer(g.user) or "Admin" in usuario_roles_lista(g.user):
                 return f(*args, **kwargs)
             if user_has_permission(resource, action):
                 return f(*args, **kwargs)
@@ -382,6 +440,7 @@ def inject_permissions():
     return dict(
         has_permission=user_has_permission,
         can_access_tab=user_can_access_tab,
+        is_user_developer=is_user_developer,
         system_tabs=SYSTEM_TABS,
     )
 
@@ -1211,12 +1270,23 @@ def seed_roles_se_necessario(conn=None):
         close_at_end = True
     cur = conn.cursor()
 
-    cur.execute("SELECT COUNT(1) FROM roles")
-    count = cur.fetchone()[0]
-
     now = agora().isoformat()
     default_roles_data = [
-        ("Admin", "Acesso irrestrito a todas as áreas, abas e configurações do sistema", 1, {
+        ("Developer", "Acesso irrestrito ao sistema e controle exclusivo de configurações avançadas e infraestrutura", 1, {
+            "developer": (1, 1, 1, 1),
+            "estoque": (1, 1, 1, 1),
+            "adicionar": (1, 1, 1, 1),
+            "baixa": (1, 1, 1, 1),
+            "produtos": (1, 1, 1, 1),
+            "pedidos": (1, 1, 1, 1),
+            "sobras": (1, 1, 1, 1),
+            "financeiro": (1, 1, 1, 1),
+            "relatorios": (1, 1, 1, 1),
+            "usuarios": (1, 1, 1, 1),
+            "roles": (1, 1, 1, 1),
+        }),
+        ("Admin", "Acesso irrestrito a todas as áreas, abas de negócio e usuários do sistema", 1, {
+            "developer": (0, 0, 0, 0),
             "estoque": (1, 1, 1, 1),
             "adicionar": (1, 1, 1, 1),
             "baixa": (1, 1, 1, 1),
@@ -1271,11 +1341,11 @@ def seed_roles_se_necessario(conn=None):
                 "INSERT INTO roles (id, name, description, is_system, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (role_id, name, desc, is_sys, now, now),
             )
-            for res, (c, r, u, d) in perms.items():
-                cur.execute(
-                    "INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (name, res, c, r, u, d, now),
-                )
+        for res, (c, r, u, d) in perms.items():
+            cur.execute(
+                "INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name, res, c, r, u, d, now),
+            )
     conn.commit()
 
     if close_at_end:
@@ -1290,7 +1360,7 @@ def carregar_papeis():
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
 
-        cur.execute("SELECT * FROM roles ORDER BY CASE WHEN name='Admin' THEN 0 ELSE 1 END, name")
+        cur.execute("SELECT * FROM roles ORDER BY CASE WHEN name='Developer' THEN 0 WHEN name='Admin' THEN 1 ELSE 2 END, name")
         roles_rows = cur.fetchall()
 
         cur.execute("SELECT role, COUNT(1) as cnt FROM usuarios GROUP BY role")
@@ -1315,7 +1385,12 @@ def carregar_papeis():
             for tab in SYSTEM_TABS:
                 t_id = tab["id"]
                 p = perms.get(t_id, {})
-                if r_name == "Admin" or p.get("can_read") or (t_id in ("adicionar", "baixa") and p.get("can_create")):
+                if r_name == "Developer":
+                    allowed_tabs.append(tab)
+                elif r_name == "Admin":
+                    if t_id != "developer":
+                        allowed_tabs.append(tab)
+                elif p.get("can_read") or (t_id in ("adicionar", "baixa") and p.get("can_create")):
                     allowed_tabs.append(tab)
 
             result.append({
@@ -1730,9 +1805,8 @@ def auth_google_callback():
 
 
 @app.route("/configuracoes/sso", methods=["GET", "POST"])
-@requires_permission("usuarios", "create")
+@requires_developer
 def configuracoes_sso_view():
-    papeis = carregar_papeis()
     if request.method == "POST":
         cfg = {
             "google_client_id": request.form.get("google_client_id", "").strip(),
@@ -1743,11 +1817,9 @@ def configuracoes_sso_view():
         }
         salvar_configuracoes_sso(cfg)
         flash("Configurações do Google SSO atualizadas com sucesso!")
-        return redirect(url_for("configuracoes_sso_view"))
+        return redirect(url_for("developer_dashboard", tab="sso"))
 
-    config_sso = obter_configuracoes_sso()
-    redirect_uri = url_for("auth_google_callback", _external=True)
-    return render_template("configuracao_sso.html", config_sso=config_sso, papeis=papeis, redirect_uri=redirect_uri)
+    return redirect(url_for("developer_dashboard", tab="sso"))
 
 
 # Minha conta (Editar Perfil, Nome, Foto e Trocar Senha)
@@ -1899,17 +1971,25 @@ def usuarios():
 @requires_permission("usuarios", "create")
 def usuarios_novo():
     papeis = carregar_papeis()
+    is_actor_dev = is_user_developer(g.user)
 
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         password2 = request.form.get("password2", "")
-        roles = [r for r in request.form.getlist("roles") if r.strip()]
-        if not roles:
+        raw_roles = [r for r in request.form.getlist("roles") if r.strip()]
+        if not raw_roles:
             legado = request.form.get("role", "").strip()
             if legado:
-                roles = [legado]
+                raw_roles = [legado]
+
+        # Se o ator NÃO for Developer, não pode conceder o papel Developer
+        if not is_actor_dev:
+            roles = [r for r in raw_roles if r.lower() != "developer"]
+        else:
+            roles = raw_roles
+
         role = roles[0] if roles else ""
 
         if not username or not password:
@@ -1977,6 +2057,8 @@ def usuarios_novo():
 @requires_permission("usuarios", "update")
 def usuarios_editar(user_id):
     papeis = carregar_papeis()
+    is_actor_dev = is_user_developer(g.user)
+
     if USE_SQLITE:
         init_db()
         conn = sqlite3.connect(DB_PATH)
@@ -2002,13 +2084,25 @@ def usuarios_editar(user_id):
             flash("Usuário não encontrado.")
             return redirect(url_for("usuarios"))
 
+    # Se o usuário alvo for Developer e o ator NÃO for Developer, negar edição
+    if is_user_developer(usuario) and not is_actor_dev:
+        flash("Acesso negado: administradores não têm permissão para editar contas com acesso de Desenvolvedor.")
+        return redirect(url_for("usuarios"))
+
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
-        roles = [x for x in request.form.getlist("roles") if x.strip()]
-        if not roles:
+        raw_roles = [x for x in request.form.getlist("roles") if x.strip()]
+        if not raw_roles:
             legado = request.form.get("role", "").strip()
             if legado:
-                roles = [legado]
+                raw_roles = [legado]
+
+        # Se o ator não for Developer, não pode conceder o papel Developer
+        if not is_actor_dev:
+            roles = [r for r in raw_roles if r.lower() != "developer"]
+        else:
+            roles = raw_roles
+
         role = roles[0] if roles else ""
         new_pwd = request.form.get("password", "")
         old_roles = usuario_roles_lista(usuario)
@@ -2086,6 +2180,14 @@ def usuarios_excluir(user_id):
         flash("Você não pode excluir sua própria conta.")
         return redirect(url_for("usuarios"))
 
+    target_user = next((u for u in usuarios_lista if u.get("id") == user_id), None)
+    if not target_user and USE_SQLITE:
+        target_user = encontrar_usuario_por_id(user_id)
+
+    if target_user and is_user_developer(target_user) and not is_user_developer(g.user):
+        flash("Acesso negado: administradores não têm permissão para remover contas com acesso de Desenvolvedor.")
+        return redirect(url_for("usuarios"))
+
     if USE_SQLITE:
         init_db()
         conn = sqlite3.connect(DB_PATH)
@@ -2126,12 +2228,18 @@ def roles():
 @app.route("/roles/novo", methods=["GET", "POST"])
 @requires_permission("roles", "create")
 def roles_novo():
+    is_actor_dev = is_user_developer(g.user)
+
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         description = request.form.get("description", "").strip()
 
         if not name:
             flash("O nome do papel é obrigatório.")
+            return render_template("role_form.html", role=None, system_tabs=SYSTEM_TABS, is_novo=True)
+
+        if name.lower() in ("admin", "developer"):
+            flash(f'O nome "{name}" é reservado para papéis do sistema.')
             return render_template("role_form.html", role=None, system_tabs=SYSTEM_TABS, is_novo=True)
 
         existing = encontrar_papel(name)
@@ -2153,6 +2261,8 @@ def roles_novo():
                 )
                 for tab in SYSTEM_TABS:
                     t_id = tab["id"]
+                    if t_id == "developer" and not is_actor_dev:
+                        continue
                     can_create = 1 if request.form.get(f"can_create_{t_id}") else 0
                     can_read = 1 if request.form.get(f"can_read_{t_id}") else 0
                     can_update = 1 if request.form.get(f"can_update_{t_id}") else 0
@@ -2189,6 +2299,12 @@ def roles_novo():
 @app.route("/roles/<path:role>/editar", methods=["GET", "POST"])
 @requires_permission("roles", "update")
 def roles_editar(role):
+    is_actor_dev = is_user_developer(g.user)
+
+    if role.lower() == "developer" and not is_actor_dev:
+        flash("Acesso negado: apenas Desenvolvedores podem visualizar ou editar o papel Developer.")
+        return redirect(url_for("roles"))
+
     role_obj = encontrar_papel(role)
     if not role_obj:
         flash("Papel não encontrado.")
@@ -2204,7 +2320,7 @@ def roles_editar(role):
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
             try:
-                if new_name != role and role != "Admin":
+                if new_name != role and role not in ("Admin", "Developer"):
                     cur.execute("SELECT id FROM roles WHERE name=? AND name!=?", (new_name, role))
                     if cur.fetchone():
                         conn.close()
@@ -2216,18 +2332,32 @@ def roles_editar(role):
                 else:
                     cur.execute("UPDATE roles SET description=?, updated_at=? WHERE name=?", (description, now, role))
 
-                target_role = new_name if (new_name != role and role != "Admin") else role
+                target_role = new_name if (new_name != role and role not in ("Admin", "Developer")) else role
 
-                if target_role == "Admin":
+                if target_role == "Developer":
                     for tab in SYSTEM_TABS:
                         cur.execute(
                             "INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete, updated_at) VALUES (?, ?, 1, 1, 1, 1, ?)",
-                            ("Admin", tab["id"], now),
+                            ("Developer", tab["id"], now),
                         )
+                elif target_role == "Admin":
+                    for tab in SYSTEM_TABS:
+                        if tab["id"] == "developer":
+                            cur.execute(
+                                "INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete, updated_at) VALUES (?, ?, 0, 0, 0, 0, ?)",
+                                ("Admin", tab["id"], now),
+                            )
+                        else:
+                            cur.execute(
+                                "INSERT OR REPLACE INTO role_permissions (role, resource, can_create, can_read, can_update, can_delete, updated_at) VALUES (?, ?, 1, 1, 1, 1, ?)",
+                                ("Admin", tab["id"], now),
+                            )
                 else:
                     cur.execute("DELETE FROM role_permissions WHERE role=?", (target_role,))
                     for tab in SYSTEM_TABS:
                         t_id = tab["id"]
+                        if t_id == "developer" and not is_actor_dev:
+                            continue
                         can_create = 1 if request.form.get(f"can_create_{t_id}") else 0
                         can_read = 1 if request.form.get(f"can_read_{t_id}") else 0
                         can_update = 1 if request.form.get(f"can_update_{t_id}") else 0
@@ -2267,8 +2397,8 @@ def roles_editar(role):
 @app.route("/roles/<path:role>/excluir", methods=["POST"])
 @requires_permission("roles", "delete")
 def roles_excluir(role):
-    if role == "Admin":
-        flash("O papel Administrador é protegido pelo sistema e não pode ser excluído.")
+    if role in ("Admin", "Developer"):
+        flash(f"O papel {role} é protegido pelo sistema e não pode ser excluído.")
         return redirect(url_for("roles"))
 
     if USE_SQLITE:
@@ -2305,6 +2435,7 @@ def roles_assign():
     """Atribuição em massa de papéis a usuários."""
     papeis = carregar_papeis()
     usuarios_lista = carregar_usuarios()
+    is_actor_dev = is_user_developer(g.user)
 
     if request.method == "POST":
         if USE_SQLITE:
@@ -2314,7 +2445,16 @@ def roles_assign():
             try:
                 changed = 0
                 for u in usuarios_lista:
-                    new_roles = [x for x in request.form.getlist("role_" + u["id"]) if x.strip()]
+                    # Se o usuário alvo for Developer e o ator NÃO for Developer, não alterar
+                    if is_user_developer(u) and not is_actor_dev:
+                        continue
+
+                    raw_roles = [x for x in request.form.getlist("role_" + u["id"]) if x.strip()]
+                    if not is_actor_dev:
+                        new_roles = [x for x in raw_roles if x.lower() != "developer"]
+                    else:
+                        new_roles = raw_roles
+
                     old_roles = usuario_roles_lista(u)
                     if set(new_roles) != set(old_roles):
                         role_principal = new_roles[0] if new_roles else ""
@@ -6056,6 +6196,370 @@ def ania_status():
         "engine": "ollama_hybrid" if ollama_info.get("online") else "regras_locais",
         "timestamp": agora().isoformat()
     })
+
+
+# ── Developer Hub (Gestão Técnica de Infraestrutura, SSO, IA e Banco) ─────────
+_SERVER_START_TIME = agora()
+
+@app.route("/developer")
+@app.route("/dev")
+@requires_developer
+def developer_dashboard():
+    aba_ativa = request.args.get("tab", "sso")
+    config_sso = obter_configuracoes_sso()
+    papeis = carregar_papeis()
+    redirect_uri = url_for("auth_google_callback", _external=True)
+
+    # Motor Ollama
+    engine = get_ania_engine()
+    ollama_info = engine.ollama.get_status() if hasattr(engine, "ollama") and engine.ollama else {
+        "enabled": True,
+        "online": False,
+        "mode": "contingency_rules",
+        "host": "http://localhost:11434",
+        "model": "qwen2.5:3b",
+        "timeout": 25.0,
+        "emulate_if_offline": True,
+    }
+    available_models = getattr(engine.ollama, "_cached_available_models", []) if hasattr(engine, "ollama") and engine.ollama else []
+    if not available_models and hasattr(engine, "ollama") and engine.ollama:
+        try:
+            engine.ollama.is_online(force_refresh=True)
+            available_models = engine.ollama._cached_available_models
+        except Exception:
+            pass
+
+    # SQLite Database Stats
+    db_stats = {
+        "path": DB_PATH,
+        "size_kb": 0,
+        "size_mb": 0.0,
+        "sqlite_version": sqlite3.sqlite_version,
+        "journal_mode": "WAL",
+        "integrity": "OK",
+        "tables": []
+    }
+    audits_list = []
+
+    if USE_SQLITE:
+        try:
+            if os.path.exists(DB_PATH):
+                sz = os.path.getsize(DB_PATH)
+                db_stats["size_kb"] = round(sz / 1024, 1)
+                db_stats["size_mb"] = round(sz / (1024 * 1024), 2)
+            
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+
+            # Journal mode & Integrity
+            try:
+                cur.execute("PRAGMA journal_mode")
+                row = cur.fetchone()
+                if row:
+                    db_stats["journal_mode"] = str(row[0]).upper()
+                cur.execute("PRAGMA integrity_check")
+                row = cur.fetchone()
+                if row:
+                    db_stats["integrity"] = str(row[0])
+            except Exception:
+                pass
+
+            # Table counts
+            tabelas_principais = [
+                ("materiais", "Materiais em Estoque"),
+                ("produtos", "Produtos Artesanais"),
+                ("pedidos", "Pedidos de Clientes"),
+                ("movimentacoes", "Movimentações de Estoque"),
+                ("sobras", "Sobras e Retalhos"),
+                ("despesas", "Despesas Financeiras"),
+                ("usuarios", "Usuários"),
+                ("roles", "Papéis de Acesso"),
+                ("role_permissions", "Matriz de Permissões"),
+                ("audits", "Trilha de Auditoria"),
+                ("agendamentos_email", "Agendamentos de E-mail"),
+                ("historico_envios_email", "Histórico de Envios"),
+                ("configuracoes_sso", "Configurações SSO"),
+            ]
+            for tname, tdesc in tabelas_principais:
+                try:
+                    cur.execute(f"SELECT COUNT(1) FROM {tname}")
+                    cnt = cur.fetchone()[0]
+                    db_stats["tables"].append({"name": tname, "desc": tdesc, "count": cnt})
+                except Exception:
+                    pass
+
+            # Trilha de auditoria recente
+            cur.execute("SELECT * FROM audits ORDER BY created_at DESC LIMIT 150")
+            audits_list = [dict(r) for r in cur.fetchall()]
+            conn.close()
+        except Exception as ex:
+            db_stats["error"] = str(ex)
+
+    # Runtime Diagnostics
+    import platform
+    diagnostics = {
+        "python_version": platform.python_version(),
+        "flask_version": "3.0+",
+        "platform": platform.platform(),
+        "system": platform.system(),
+        "timezone": "America/Sao_Paulo (UTC-3)",
+        "server_start": _SERVER_START_TIME.strftime("%d/%m/%Y %H:%M:%S"),
+        "scheduler_running": _SCHEDULER_RUNNING,
+        "total_users": len(carregar_usuarios()),
+        "total_roles": len(papeis),
+        "db_mode": "SQLite WAL" if USE_SQLITE else "JSON Fallback",
+    }
+
+    return render_template(
+        "developer.html",
+        aba_ativa=aba_ativa,
+        config_sso=config_sso,
+        papeis=papeis,
+        redirect_uri=redirect_uri,
+        ollama_info=ollama_info,
+        available_models=available_models,
+        db_stats=db_stats,
+        audits=audits_list,
+        diagnostics=diagnostics,
+    )
+
+
+@app.route("/developer/sso/salvar", methods=["POST"])
+@requires_developer
+def developer_sso_salvar():
+    cfg = {
+        "google_client_id": request.form.get("google_client_id", "").strip(),
+        "google_client_secret": request.form.get("google_client_secret", "").strip(),
+        "ativo": 1 if request.form.get("ativo") == "1" else 0,
+        "auto_cadastro": 1 if request.form.get("auto_cadastro") == "1" else 0,
+        "papel_padrao": request.form.get("papel_padrao", "Producao").strip(),
+    }
+    salvar_configuracoes_sso(cfg)
+
+    # Audit log
+    if USE_SQLITE:
+        try:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else "Developer", None, "update_sso_config", f"ativo={cfg['ativo']};client_id_set={'yes' if cfg['google_client_id'] else 'no'};secret_set={'yes' if cfg['google_client_secret'] else 'no'}", agora().isoformat())
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    flash("Configurações do Google SSO e credenciais salvas com sucesso no Developer Hub!")
+    return redirect(url_for("developer_dashboard", tab="sso"))
+
+
+@app.route("/developer/sso/testar-gmail", methods=["POST"])
+@requires_developer
+def developer_sso_testar_gmail():
+    email_teste = request.form.get("email_teste", "").strip().lower()
+    if not email_teste or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_teste):
+        flash("Informe um e-mail válido para receber o teste.")
+        return redirect(url_for("developer_dashboard", tab="sso"))
+
+    try:
+        pdf_bytes = gerar_pdf_financeiro_bytes()
+        anexos = [{"nome": "teste_diagnostico_atelie.pdf", "bytes": pdf_bytes, "mimetype": "application/pdf"}]
+    except Exception:
+        anexos = []
+
+    corpo = gerar_html_email_relatorio(
+        "🧪 Teste de Conexão Gmail API (Developer Hub)",
+        "Este é um disparo de diagnóstico técnico executado a partir do painel de Desenvolvedor para validação da Gmail REST API e credenciais Google.",
+        anexos_nomes=[a["nome"] for a in anexos]
+    )
+    res = enviar_email(
+        destinatarios=[email_teste],
+        assunto="🧪 Teste de Diagnóstico Gmail API — Ateliê Haiti (Dev)",
+        corpo_html=corpo,
+        anexos=anexos,
+        texto_puro="Disparo de diagnóstico técnico do Developer Hub.",
+        remetente_user_id=g.user.get("id") if g.get("user") else None,
+        tipo_relatorio="Diagnostico_Dev",
+        enviado_por=g.user.get("username") if g.get("user") else "Developer"
+    )
+
+    if res.get("success"):
+        if res.get("simulated"):
+            flash(f"✅ Diagnóstico concluído em Modo Simulação para {email_teste}!")
+        else:
+            flash(f"✅ E-mail de diagnóstico enviado com sucesso via Gmail API para {email_teste}!")
+    else:
+        flash(f"Falha no teste de envio: {res.get('error')}")
+
+    return redirect(url_for("developer_dashboard", tab="sso"))
+
+
+@app.route("/developer/ollama/salvar", methods=["POST"])
+@requires_developer
+def developer_ollama_salvar():
+    host = request.form.get("ollama_host", "").strip() or "http://localhost:11434"
+    model = request.form.get("ollama_model", "").strip() or "qwen2.5:3b"
+    timeout_raw = request.form.get("ollama_timeout", "25").strip()
+    emulate = (request.form.get("ollama_emulate") == "1")
+
+    try:
+        timeout = float(timeout_raw)
+    except ValueError:
+        timeout = 25.0
+
+    engine = get_ania_engine()
+    if hasattr(engine, "ollama") and engine.ollama:
+        engine.ollama.host = host.rstrip("/")
+        engine.ollama.model = model
+        engine.ollama.timeout = timeout
+        engine.ollama.emulate_if_offline = emulate
+        engine.ollama._explicit_model = True
+        try:
+            engine.ollama.is_online(force_refresh=True)
+        except Exception:
+            pass
+
+    if USE_SQLITE:
+        try:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else "Developer", None, "update_ollama_config", f"host={host};model={model};timeout={timeout};emulate={emulate}", agora().isoformat())
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    flash("Configurações do motor Ollama IA atualizadas com sucesso!")
+    return redirect(url_for("developer_dashboard", tab="ollama"))
+
+
+@app.route("/developer/ollama/testar-prompt", methods=["POST"])
+@requires_developer
+def developer_ollama_testar_prompt():
+    data = request.get_json(silent=True) or {}
+    prompt = data.get("prompt", "").strip()
+    if not prompt:
+        return jsonify({"success": False, "error": "Prompt não informado."}), 400
+
+    mode = data.get("mode", "ia")
+    engine = get_ania_engine()
+    t0 = time.time()
+    res = engine.processar_mensagem(prompt, g.user, history=[], mode=mode)
+    elapsed_ms = round((time.time() - t0) * 1000, 1)
+
+    return jsonify({
+        "success": True,
+        "prompt": prompt,
+        "mode": mode,
+        "elapsed_ms": elapsed_ms,
+        "result": res,
+        "timestamp": agora().isoformat()
+    })
+
+
+@app.route("/developer/db/backup")
+@requires_developer
+def developer_db_backup():
+    if not USE_SQLITE or not os.path.exists(DB_PATH):
+        flash("Banco de dados SQLite não encontrado para download.")
+        return redirect(url_for("developer_dashboard", tab="database"))
+
+    nome_arquivo = f"backup_atelie_haiti_{agora().strftime('%Y%m%d_%H%M%S')}.sqlite3"
+    return send_file(DB_PATH, as_attachment=True, download_name=nome_arquivo, mimetype="application/x-sqlite3")
+
+
+@app.route("/developer/db/otimizar", methods=["POST"])
+@requires_developer
+def developer_db_otimizar():
+    if USE_SQLITE:
+        try:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("VACUUM")
+            cur.execute("ANALYZE")
+            conn.commit()
+            try:
+                cur.execute(
+                    "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else "Developer", None, "optimize_database", "VACUUM + ANALYZE executado", agora().isoformat())
+                )
+                conn.commit()
+            except Exception:
+                pass
+            conn.close()
+            flash("✅ Banco de dados otimizado com sucesso (VACUUM e ANALYZE concluídos)!")
+        except Exception as e:
+            flash(f"Erro ao otimizar banco: {e}")
+    else:
+        flash("Otimização não aplicável ao modo JSON.")
+
+    return redirect(url_for("developer_dashboard", tab="database"))
+
+
+@app.route("/developer/db/restaurar", methods=["POST"])
+@requires_developer
+def developer_db_restaurar():
+    f = request.files.get("backup_file")
+    if not f or not f.filename:
+        flash("Selecione um arquivo de backup (.sqlite3 ou .db) válido.")
+        return redirect(url_for("developer_dashboard", tab="database"))
+
+    conteudo = f.read()
+    if len(conteudo) < 16 or not conteudo.startswith(b"SQLite format 3\x00"):
+        flash("O arquivo enviado não é um banco de dados SQLite válido.")
+        return redirect(url_for("developer_dashboard", tab="database"))
+
+    try:
+        if os.path.exists(DB_PATH):
+            safety_backup = f"{DB_PATH}.safety_{int(time.time())}.bak"
+            with open(safety_backup, "wb") as bf:
+                with open(DB_PATH, "rb") as cur_f:
+                    bf.write(cur_f.read())
+
+        with open(DB_PATH, "wb") as out_f:
+            out_f.write(conteudo)
+
+        init_db()
+        flash("✅ Banco de dados restaurado com sucesso a partir do backup!")
+    except Exception as e:
+        flash(f"Erro ao restaurar banco de dados: {e}")
+
+    return redirect(url_for("developer_dashboard", tab="database"))
+
+
+@app.route("/developer/seguranca/invalidar-sessoes", methods=["POST"])
+@requires_developer
+def developer_seguranca_invalidar_sessoes():
+    if USE_SQLITE:
+        try:
+            init_db()
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET session_version = COALESCE(session_version, 0) + 1")
+            cur.execute(
+                "INSERT INTO audits (id, actor_id, actor_username, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), session.get("user_id"), g.user.get("username") if g.get("user") else "Developer", None, "invalidate_all_sessions", "Todas as sessões ativas foram invalidadas", agora().isoformat())
+            )
+            conn.commit()
+            conn.close()
+            if g.get("user"):
+                session["session_version"] = g.user.get("session_version", 0) + 1
+            flash("🔒 Todas as outras sessões ativas foram desconectadas com sucesso!")
+        except Exception as e:
+            flash(f"Erro ao invalidar sessões: {e}")
+    else:
+        flash("Invalidação de sessões executada.")
+
+    return redirect(url_for("developer_dashboard", tab="audits"))
 
 
 # Fallback — mantém a navegação de pé para qualquer rota que ainda não exista.

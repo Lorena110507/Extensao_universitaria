@@ -28,9 +28,9 @@
       <a href="{{ url_for('historico_emails') }}" class="btn-ghost subtab-link {{ 'active-subtab' if aba_email == 'historico' }}" style="padding: 8px 16px; font-size: 14px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; transition: all 0.2s ease;">
         📜 Histórico
       </a>
-      {% if has_permission('relatorios', 'create') or 'Admin' in usuario_roles_lista(g.user) %}
-      <a href="{{ url_for('configuracoes_sso_view') }}" class="btn-ghost subtab-link {{ 'active-subtab' if aba_email == 'configuracao' }}" style="padding: 8px 16px; font-size: 14px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; transition: all 0.2s ease;">
-        ⚙️ Conexão Gmail &amp; SSO
+      {% if is_user_developer(g.user) %}
+      <a href="{{ url_for('developer_dashboard', tab='sso') }}" class="btn-ghost subtab-link" style="padding: 8px 16px; font-size: 14px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--primary); background: rgba(124,61,18,0.08);">
+        🛠️ Chaves SSO no Developer Hub
       </a>
       {% endif %}
     </div>

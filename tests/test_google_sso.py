@@ -34,7 +34,15 @@ class TestGoogleSSO(unittest.TestCase):
             (id, username, password_hash, role, roles, nome, email, created_at, session_version)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
             """,
-            ("admin-uid", "admin", app.generate_password_hash("admin123"), "Admin", app.serializar_roles(["Admin"]), "Administrador", "admin@ateliehaiti.com", now)
+            ("admin-uid", "admin", app.generate_password_hash("admin123"), "Developer", app.serializar_roles(["Developer"]), "Administrador", "admin@ateliehaiti.com", now)
+        )
+        cur.execute(
+            """
+            INSERT INTO usuarios 
+            (id, username, password_hash, role, roles, nome, email, created_at, session_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            ("admin-only-uid", "admin_only", app.generate_password_hash("admin123"), "Admin", app.serializar_roles(["Admin"]), "Admin Comum", "adminonly@ateliehaiti.com", now)
         )
         conn.commit()
         conn.close()
@@ -44,10 +52,20 @@ class TestGoogleSSO(unittest.TestCase):
             sess["user_id"] = "admin-uid"
             sess["session_version"] = 0
 
-    def test_01_configuracoes_sso_crud(self):
-        """Testa salvar e ler configurações de Google SSO."""
-        self._login_admin()
+    def _login_admin_only(self):
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = "admin-only-uid"
+            sess["session_version"] = 0
 
+    def test_01_configuracoes_sso_crud(self):
+        """Testa salvar e ler configurações de Google SSO por Developer e bloqueio para Admin comum."""
+        # 1. Admin comum tenta acessar /configuracoes/sso -> Negado (302 para home)
+        self._login_admin_only()
+        resp_denied = self.client.get("/configuracoes/sso", follow_redirects=False)
+        self.assertEqual(resp_denied.status_code, 302)
+
+        # 2. Developer salva configurações
+        self._login_admin()
         resp = self.client.post("/configuracoes/sso", data={
             "google_client_id": "test-client-id.apps.googleusercontent.com",
             "google_client_secret": "test-secret-12345",

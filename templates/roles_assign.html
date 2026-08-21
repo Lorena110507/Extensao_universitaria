@@ -44,16 +44,24 @@
               {% endif %}
             </td>
             <td style="padding:12px;">
-              <div style="display:flex; flex-wrap:wrap; gap:6px 14px; max-width:420px;">
-                {% for p in papeis %}
-                  <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:15px; color:var(--text);">
-                    <input type="checkbox" name="role_{{ u.id }}" value="{{ p.name }}"
-                      {% if p.name in usuario_roles_lista(u) %}checked{% endif %}
-                      style="width:16px; height:16px; accent-color:var(--accent);">
-                    {{ p.name }}
-                  </label>
-                {% endfor %}
-              </div>
+              {% if is_user_developer(u) and not is_user_developer(g.user) %}
+                <span class="badge" style="background:#2C1810; color:#fde9c2; font-size:13px; font-weight:700; padding:4px 10px; border-radius:8px;">
+                  🔒 Protegido (Developer)
+                </span>
+              {% else %}
+                <div style="display:flex; flex-wrap:wrap; gap:6px 14px; max-width:420px;">
+                  {% for p in papeis %}
+                    {% if p.name != 'Developer' or is_user_developer(g.user) %}
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:15px; color:var(--text);">
+                      <input type="checkbox" name="role_{{ u.id }}" value="{{ p.name }}"
+                        {% if p.name in usuario_roles_lista(u) %}checked{% endif %}
+                        style="width:16px; height:16px; accent-color:var(--accent);">
+                      {{ p.name }}
+                    </label>
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
