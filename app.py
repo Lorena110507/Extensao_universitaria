@@ -1453,34 +1453,60 @@ def encontrar_papel(role_name):
 
 
 def criar_usuario_padrao_se_necessario():
+    now = agora().isoformat()
     if USE_SQLITE:
         init_db()
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(1) FROM usuarios")
-        cnt = cur.fetchone()[0]
-        if cnt == 0:
+
+        # Garante usuário admin padrão
+        cur.execute("SELECT id FROM usuarios WHERE username='admin'")
+        if not cur.fetchone():
             senha = os.environ.get("ADMIN_PASSWORD", "admin")
             uid = str(uuid.uuid4())
-            cur.execute("INSERT INTO usuarios (id,username,password_hash,role,roles,created_at) VALUES (?,?,?,?,?,?)",
-                        (uid, 'admin', generate_password_hash(senha), 'Admin', serializar_roles(['Admin']), agora().isoformat()))
+            cur.execute("INSERT INTO usuarios (id,username,password_hash,role,roles,nome,created_at) VALUES (?,?,?,?,?,?,?)",
+                        (uid, 'admin', generate_password_hash(senha), 'Admin', serializar_roles(['Admin']), 'Administrador', now))
             conn.commit()
+
+        # Garante usuário developer padrão
+        cur.execute("SELECT id FROM usuarios WHERE username='developer'")
+        if not cur.fetchone():
+            dev_senha = os.environ.get("DEV_PASSWORD", "developer")
+            dev_uid = str(uuid.uuid4())
+            cur.execute("INSERT INTO usuarios (id,username,password_hash,role,roles,nome,created_at) VALUES (?,?,?,?,?,?,?)",
+                        (dev_uid, 'developer', generate_password_hash(dev_senha), 'Developer', serializar_roles(['Developer']), 'Desenvolvedor', now))
+            conn.commit()
+
         conn.close()
         return
 
     usuarios = carregar_usuarios()
-    if not usuarios:
+    tem_admin = any(u.get("username") == "admin" for u in usuarios)
+    tem_dev = any(u.get("username") == "developer" for u in usuarios)
+
+    if not tem_admin:
         senha = os.environ.get("ADMIN_PASSWORD", "admin")
-        usuario = {
+        usuarios.append({
             "id": str(uuid.uuid4()),
             "username": "admin",
+            "nome": "Administrador",
             "password_hash": generate_password_hash(senha),
             "role": 'Admin',
             "roles": ['Admin'],
-            "created_at": agora().isoformat(),
-        }
-        usuarios.append(usuario)
-        salvar_usuarios(usuarios)
+            "created_at": now,
+        })
+    if not tem_dev:
+        dev_senha = os.environ.get("DEV_PASSWORD", "developer")
+        usuarios.append({
+            "id": str(uuid.uuid4()),
+            "username": "developer",
+            "nome": "Desenvolvedor",
+            "password_hash": generate_password_hash(dev_senha),
+            "role": 'Developer',
+            "roles": ['Developer'],
+            "created_at": now,
+        })
+    salvar_usuarios(usuarios)
 
 
 criar_usuario_padrao_se_necessario()
