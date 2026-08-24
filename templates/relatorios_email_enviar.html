@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Central de E-mails · Enviar" %}
+{% set subtitulo = "Disparo Imediato de Balanços e Planilhas por E-mail" %}
+{% set aba_email = "enviar" %}
+{% block conteudo %}
+
+{% include "email_subnav.html" %}
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:20px; align-items:start;">
+  
+  <!-- Formulário de Envio -->
+  <div class="card" style="padding:22px;">
+    <form method="post" id="form-enviar-email">
+      
+      <!-- 1. Tipo de Relatório -->
+      <div style="margin-bottom:20px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:8px;">
+          1. Selecione o(s) Relatório(s) Anexo(s) <span style="color:var(--danger);">*</span>
+        </label>
+        <div style="display:grid; gap:8px;">
+          <label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; cursor:pointer; background:var(--card-bg);">
+            <input type="radio" name="tipo_relatorio" value="financeiro_pdf" checked style="accent-color:var(--accent); width:18px; height:18px;">
+            <div>
+              <span style="font-weight:700; color:var(--text); font-size:15px;">📄 Relatório Financeiro e Balanço (PDF)</span>
+              <p class="font-crimson" style="margin:2px 0 0 0; font-size:13px; color:var(--muted); font-style:italic;">
+                Documento formatado para impressão com receitas, despesas, margem e estoque crítico
+              </p>
+            </div>
+          </label>
+
+          <label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; cursor:pointer; background:var(--card-bg);">
+            <input type="radio" name="tipo_relatorio" value="completo_xlsx" style="accent-color:var(--accent); width:18px; height:18px;">
+            <div>
+              <span style="font-weight:700; color:var(--text); font-size:15px;">📊 Planilha Completa do Sistema (Excel .xlsx)</span>
+              <p class="font-crimson" style="margin:2px 0 0 0; font-size:13px; color:var(--muted); font-style:italic;">
+                Pasta de trabalho com abas estruturadas de Estoque, Pedidos, Despesas, Produtos e Sobras
+              </p>
+            </div>
+          </label>
+
+          <label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; cursor:pointer; background:var(--card-bg);">
+            <input type="radio" name="tipo_relatorio" value="ambos" style="accent-color:var(--accent); width:18px; height:18px;">
+            <div>
+              <span style="font-weight:700; color:var(--text); font-size:15px;">📦 Pacote Completo (PDF Financeiro + Excel .xlsx)</span>
+              <p class="font-crimson" style="margin:2px 0 0 0; font-size:13px; color:var(--muted); font-style:italic;">
+                Envia ambos os arquivos anexados no mesmo e-mail
+              </p>
+            </div>
+          </label>
+
+          <label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; cursor:pointer; background:var(--card-bg);">
+            <input type="radio" name="tipo_relatorio" value="estoque_baixo_pdf" style="accent-color:var(--accent); width:18px; height:18px;">
+            <div>
+              <span style="font-weight:700; color:var(--text); font-size:15px;">⚠️ Alerta de Estoque Crítico &amp; Reposição (PDF)</span>
+              <p class="font-crimson" style="margin:2px 0 0 0; font-size:13px; color:var(--muted); font-style:italic;">
+                Lista detalhada de materiais abaixo da quantidade mínima e custo de reposição
+              </p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- 2. Seleção de Destinatários Cadastrados -->
+      <div style="margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+          <label style="font-weight:700; color:var(--primary); font-size:15px; margin:0;">
+            2. Destinatários Cadastrados
+          </label>
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="btn-ghost" onclick="selecionarTodosEmails(true)" style="padding:3px 8px; font-size:12px; min-height:26px;">
+              Selecionar Todos
+            </button>
+            <button type="button" class="btn-ghost" onclick="selecionarAdmins()" style="padding:3px 8px; font-size:12px; min-height:26px;">
+              Apenas Admins
+            </button>
+            <button type="button" class="btn-ghost" onclick="selecionarTodosEmails(false)" style="padding:3px 8px; font-size:12px; min-height:26px;">
+              Limpar
+            </button>
+          </div>
+        </div>
+
+        {% set usuarios_com_email = usuarios|selectattr('email')|list %}
+        {% if usuarios_com_email %}
+          <div style="max-height:180px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:8px; background:var(--card-bg); display:flex; flex-direction:column; gap:6px;">
+            {% for u in usuarios_com_email %}
+              {% set uroles = usuario_roles_lista(u) %}
+              <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:rgba(0,0,0,0.01); cursor:pointer; font-size:14px;">
+                <input type="checkbox" name="destinatarios_usuarios" value="{{ u.email }}" data-is-admin="{{ '1' if 'Admin' in uroles else '0' }}" class="check-dest" style="accent-color:var(--accent); width:16px; height:16px;">
+                <span style="font-weight:600; color:var(--text);">{{ u.nome or u.username }}</span>
+                <span style="color:var(--primary); font-size:13px;">({{ u.email }})</span>
+                {% if 'Admin' in uroles %}
+                  <span class="badge" style="background:#5c2d0e; color:#fde9c2; font-size:11px; padding:1px 6px; border-radius:10px;">Admin</span>
+                {% endif %}
+              </label>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div style="padding:12px; background:rgba(124,61,18,0.04); border:1px dashed var(--border); border-radius:8px;">
+            <p class="font-crimson" style="margin:0; font-size:14px; color:var(--muted); font-style:italic;">
+              Nenhum usuário possui e-mail cadastrado ainda.
+              <a href="{{ url_for('usuarios') }}" style="color:var(--primary); font-weight:700;">Cadastre e-mails na aba Usuários →</a>
+            </p>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- 3. E-mails Adicionais / Manuais -->
+      <div style="margin-bottom:20px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+          3. Outros E-mails Destinatários <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+        </label>
+        <input name="destinatarios_extras" type="text" class="input-vintage" placeholder="Ex: diretoria@exemplo.com, consultoria@atelie.com"
+               style="font-size:14px;">
+        <span style="font-size:13px; color:var(--muted);">Separe múltiplos e-mails por vírgula.</span>
+      </div>
+
+      <!-- 4. Assunto & Mensagem Personalizada -->
+      <div style="margin-bottom:14px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+          Assunto do E-mail <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+        </label>
+        <input name="assunto" type="text" class="input-vintage" placeholder="Ex: Relatório Mensal de Desempenho e Balanço">
+      </div>
+
+      <div style="margin-bottom:22px;">
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+          Mensagem de Acompanhamento <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+        </label>
+        <textarea name="mensagem" class="input-vintage" rows="3" placeholder="Escreva uma nota personalizada que acompanhará o relatório..."></textarea>
+      </div>
+
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button type="submit" class="btn-primary" style="min-width:200px; padding:12px 24px; font-size:16px;">
+          🚀 Enviar Relatório Agora
+        </button>
+        <a href="{{ url_for('alertas') }}" class="btn-ghost" style="padding:12px 20px;">
+          Cancelar
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <!-- Card Lateral Informativo -->
+  <div style="display:flex; flex-direction:column; gap:16px;">
+    
+    <div class="card" style="padding:18px; border-left:4px solid var(--primary);">
+      <h4 class="font-serif" style="margin:0 0 8px 0; color:var(--primary); font-size:16px;">
+        ℹ️ Como funciona o envio?
+      </h4>
+      <p class="font-crimson" style="margin:0 0 8px 0; font-size:14px; color:var(--text); line-height:1.4;">
+        O sistema gera em tempo real o balanço atualizado com dados de estoque, receitas de pedidos entregues e despesas cadastradas.
+      </p>
+      <p class="font-crimson" style="margin:0; font-size:14px; color:var(--muted); font-style:italic;">
+        Todos os disparos ficam registrados na aba <strong>Histórico de Envios</strong> para fins de auditoria e controle gerencial.
+      </p>
+    </div>
+
+    <!-- Status do Servidor de E-mail -->
+    <div class="card" style="padding:18px;">
+      <!-- Status da Conta de Disparo (Gmail API) -->
+      <h3 class="font-serif" style="margin:0 0 10px 0; font-size:17px; color:var(--primary);">
+        🌐 Provedor de Envio
+      </h3>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <span class="badge" style="background:#E8F5E9; color:#2E7D32; font-weight:700; padding:4px 10px; border-radius:12px;">
+          🚀 Google Gmail API (OAuth 2.0)
+        </span>
+      </div>
+      <p class="font-crimson" style="margin:0 0 12px 0; font-size:14px; color:var(--muted); line-height:1.4;">
+        Remetente: <strong>{{ g.user.nome or g.user.username }} &lt;{{ g.user.email or 'sua-conta@gmail.com' }}&gt;</strong><br>
+        <span style="font-size:13px; color:var(--text);">Os e-mails enviados aparecerão automaticamente na pasta de "Enviados" do seu Gmail.</span>
+      </p>
+      {% if has_permission('relatorios', 'create') or 'Admin' in usuario_roles_lista(g.user) %}
+      <a href="{{ url_for('configuracoes_sso_view') }}" class="btn-ghost" style="padding:6px 12px; font-size:14px; display:inline-block;">
+        ⚙️ Configurar Google SSO &amp; Gmail →
+      </a>
+      {% endif %}
+    </div>
+
+    <!-- Banner de Automação -->
+    <div class="card" style="padding:18px; background:rgba(124,61,18,0.03);">
+      <h4 class="font-serif" style="margin:0 0 6px 0; color:var(--primary); font-size:16px;">
+        ⏰ Quer automatizar envios regulares?
+      </h4>
+      <p class="font-crimson" style="margin:0 0 12px 0; font-size:14px; color:var(--muted); font-style:italic;">
+        Você pode programar o sistema para enviar relatórios diários, semanais ou mensais automaticamente sem precisar disparar manualmente.
+      </p>
+      <a href="{{ url_for('agendamentos_email_novo') }}" class="btn-secondary" style="padding:8px 14px; font-size:14px; display:inline-block;">
+        ➕ Criar Programação Regular
+      </a>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function selecionarTodosEmails(marcar) {
+  document.querySelectorAll('.check-dest').forEach(cb => cb.checked = marcar);
+}
+
+function selecionarAdmins() {
+  document.querySelectorAll('.check-dest').forEach(cb => {
+    cb.checked = (cb.getAttribute('data-is-admin') === '1');
+  });
+}
+</script>
+
+{% endblock %}

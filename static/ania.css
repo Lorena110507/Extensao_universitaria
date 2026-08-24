@@ -1,0 +1,561 @@
+/* ── Ania Assistant Styles (Vintage & Glassmorphism Theme) ──────────────── */
+
+/* ── Botão Flutuante (FAB) ────────────────────────────────────────────── */
+#ania-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9990;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, var(--primary) 0%, #4a2108 100%);
+  color: #fff9f0;
+  border: 2px solid var(--accent);
+  border-radius: 32px;
+  padding: 8px 16px 8px 10px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(92, 45, 14, 0.35), 0 2px 6px rgba(0,0,0,0.2);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  user-select: none;
+}
+
+#ania-fab:hover {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 12px 30px rgba(92, 45, 14, 0.45);
+  border-color: #ffd180;
+}
+
+#ania-fab:active {
+  transform: scale(0.97);
+}
+
+.ania-fab-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--accent-lt);
+  border: 2px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.ania-fab-pulse {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0.8;
+  animation: ania-pulse-ring 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+@keyframes ania-pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.9; }
+  50% { transform: scale(1.25); opacity: 0; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
+.ania-fab-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.ania-fab-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #fffdf7;
+}
+
+.ania-fab-tagline {
+  font-family: 'Crimson Text', serif;
+  font-size: 12px;
+  color: #ffdca8;
+  font-style: italic;
+  line-height: 1.1;
+}
+
+/* ── Container do Chat Modal / Drawer ─────────────────────────────────── */
+#ania-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(44, 26, 14, 0.4);
+  backdrop-filter: blur(3px);
+  z-index: 9998;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+#ania-modal-overlay.open {
+  display: block;
+  opacity: 1;
+}
+
+#ania-chat-window {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  height: 640px;
+  max-height: calc(100vh - 48px);
+  background: var(--card);
+  border: 2px solid var(--border-dk);
+  border-radius: 20px;
+  box-shadow: 0 16px 48px rgba(44, 26, 14, 0.35), 0 4px 12px rgba(0,0,0,0.15);
+  display: flex;
+  flex-direction: column;
+  z-index: 9999;
+  overflow: hidden;
+  transform: translateY(20px) scale(0.96);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+#ania-chat-window.open {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Cabeçalho do Chat ────────────────────────────────────────────────── */
+.ania-header {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dk) 100%);
+  color: #fffdf7;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid var(--accent);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.ania-header-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ania-avatar-sm {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent-lt);
+  border: 1.5px solid #ffd180;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.ania-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ania-status {
+  font-family: 'Nunito', sans-serif;
+  font-size: 11px;
+  color: #a7f3d0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ania-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.ania-mode-switch {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 12px;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ania-mode-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1.2;
+}
+
+.ania-mode-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.ania-mode-btn.active {
+  background: #fff;
+  color: #8b3a2b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  font-weight: 700;
+}
+
+.ania-engine-badge {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff9f0;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.ania-engine-badge.ollama-active {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #10b981;
+  color: #a7f3d0;
+}
+
+.ania-engine-badge.rules-active {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #fbbf24;
+  color: #fef3c7;
+}
+
+.ania-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ania-btn-icon {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 15px;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+
+.ania-btn-icon:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.05);
+}
+
+.ania-btn-icon.active {
+  background: #f59e0b;
+  border-color: #fde68a;
+}
+
+/* ── Área de Mensagens ───────────────────────────────────────────────── */
+.ania-messages {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg);
+  background-image: radial-gradient(ellipse at 50% 0%, rgba(193,127,36,.06) 0%, transparent 60%);
+}
+
+.ania-msg {
+  display: flex;
+  gap: 10px;
+  max-width: 90%;
+  animation: ania-msg-in 0.25s ease-out forwards;
+}
+
+@keyframes ania-msg-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ania-msg-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.ania-msg-bot {
+  align-self: flex-start;
+}
+
+.ania-msg-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-lt);
+  border: 1px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ania-msg-bubble {
+  padding: 12px 15px;
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.45;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  word-break: break-word;
+}
+
+.ania-msg-user .ania-msg-bubble {
+  background: var(--primary);
+  color: #fff9f0;
+  border-bottom-right-radius: 4px;
+}
+
+.ania-msg-bot .ania-msg-bubble {
+  background: var(--card);
+  color: var(--text);
+  border: 1.5px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+.ania-msg-bot.denied .ania-msg-bubble {
+  border-color: var(--danger);
+  background: #fff8f8;
+}
+
+.ania-msg-bubble p {
+  margin: 0 0 8px 0;
+}
+.ania-msg-bubble p:last-child {
+  margin-bottom: 0;
+}
+.ania-msg-bubble ul, .ania-msg-bubble ol {
+  margin: 6px 0 6px 18px;
+  padding: 0;
+}
+.ania-msg-bubble li {
+  margin-bottom: 4px;
+}
+
+/* ── Animação de Carregamento (Digitando...) ─────────────────────────── */
+.ania-typing-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+}
+
+.ania-typing-dots span {
+  width: 7px;
+  height: 7px;
+  background: var(--primary);
+  border-radius: 50%;
+  animation: ania-bounce 1.3s infinite ease-in-out both;
+}
+
+.ania-typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.ania-typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes ania-bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+
+/* ── Barra de Sugestões Rápidas (Chips) ──────────────────────────────── */
+.ania-suggestions-bar {
+  padding: 6px 14px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  scrollbar-width: none;
+}
+
+.ania-suggestions-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.ania-chip {
+  background: var(--accent-lt);
+  border: 1px solid var(--accent);
+  color: var(--primary);
+  padding: 5px 11px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ania-chip:hover {
+  background: var(--accent);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* ── Visualizador de Onda de Voz (Voice Waveform) ─────────────────────── */
+.ania-voice-listening {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #fff3cd;
+  border-top: 1.5px solid #ffeeba;
+  color: #856404;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ania-voice-listening.active {
+  display: flex;
+}
+
+.ania-wave-container {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+}
+
+.ania-wave-bar {
+  width: 3px;
+  height: 8px;
+  background: #d97706;
+  border-radius: 2px;
+  animation: ania-wave 0.8s infinite ease-in-out alternate;
+}
+
+.ania-wave-bar:nth-child(1) { animation-delay: 0.1s; }
+.ania-wave-bar:nth-child(2) { animation-delay: 0.25s; }
+.ania-wave-bar:nth-child(3) { animation-delay: 0.4s; }
+.ania-wave-bar:nth-child(4) { animation-delay: 0.15s; }
+
+@keyframes ania-wave {
+  0% { height: 6px; }
+  100% { height: 20px; }
+}
+
+/* ── Rodapé / Formulário de Entrada ──────────────────────────────────── */
+.ania-footer {
+  padding: 12px 14px;
+  background: var(--card);
+  border-top: 1.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#ania-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 24px;
+  padding: 10px 16px;
+  font-size: 15px !important;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+#ania-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(124, 61, 18, 0.12);
+}
+
+.ania-btn-mic {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  color: var(--primary);
+  font-size: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.ania-btn-mic:hover {
+  background: var(--accent-lt);
+  border-color: var(--accent);
+}
+
+.ania-btn-mic.listening {
+  background: #ef4444;
+  color: #fff;
+  border-color: #b91c1c;
+  animation: ania-mic-pulse 1.2s infinite;
+}
+
+@keyframes ania-mic-pulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+  70% { transform: scale(1.08); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.ania-btn-send {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.ania-btn-send:hover {
+  background: var(--primary-dk);
+  transform: scale(1.05);
+}
+
+/* ── Responsividade Mobile ───────────────────────────────────────────── */
+@media (max-width: 600px) {
+  #ania-chat-window {
+    bottom: 0;
+    right: 0;
+    width: 100vw;
+    max-width: 100vw;
+    height: 90vh;
+    max-height: 90vh;
+    border-radius: 20px 20px 0 0;
+    border-bottom: none;
+  }
+
+  #ania-fab {
+    bottom: 16px;
+    right: 16px;
+  }
+}

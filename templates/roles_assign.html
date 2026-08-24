@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Atribuir Papéis" %}
+{% set subtitulo = "Definir Função dos Usuários" %}
+{% block conteudo %}
+
+<div style="margin-bottom:18px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+    <div>
+      <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">👥 Atribuição de Papéis</h3>
+      <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+        Selecione o papel e nível de acesso correspondente para cada colaborador
+      </p>
+    </div>
+    <a href="{{ url_for('roles') }}" class="btn-ghost" style="padding:6px 12px; font-size:15px; min-height:34px;">
+      ← Voltar aos Papéis
+    </a>
+  </div>
+</div>
+
+<form method="post">
+  <div class="card" style="padding:18px; margin-bottom:18px;">
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; min-width:480px;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--border); background:rgba(124,61,18,0.04);">
+            <th style="text-align:left; padding:10px 12px; font-size:15px; color:var(--primary);">Usuário</th>
+            <th style="text-align:left; padding:10px 12px; font-size:15px; color:var(--primary);">Papel Atual</th>
+            <th style="text-align:left; padding:10px 12px; font-size:15px; color:var(--primary);">Papéis / Funções (múltiplos)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr style="border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(253,233,194,0.15)'" onmouseout="this.style.background='transparent'">
+            <td style="padding:12px;">
+              <div style="font-weight:700; color:var(--text);">👤 {{ u.username }}</div>
+            </td>
+            <td style="padding:12px;">
+              {% if u.role == 'Admin' %}
+                <span class="badge" style="background:#5c2d0e; color:#fde9c2; font-size:13px; font-weight:700; padding:2px 8px; border-radius:12px;">👑 Admin</span>
+              {% elif u.role %}
+                <span class="badge" style="background:var(--accent-lt); color:var(--primary); font-size:13px; font-weight:600; padding:2px 8px; border-radius:12px;">{{ u.role }}</span>
+              {% else %}
+                <span style="color:var(--muted); font-size:14px; font-style:italic;">(Nenhum)</span>
+              {% endif %}
+            </td>
+            <td style="padding:12px;">
+              {% if is_user_developer(u) and not is_user_developer(g.user) %}
+                <span class="badge" style="background:#2C1810; color:#fde9c2; font-size:13px; font-weight:700; padding:4px 10px; border-radius:8px;">
+                  🔒 Protegido (Developer)
+                </span>
+              {% else %}
+                <div style="display:flex; flex-wrap:wrap; gap:6px 14px; max-width:420px;">
+                  {% for p in papeis %}
+                    {% if p.name != 'Developer' or is_user_developer(g.user) %}
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:15px; color:var(--text);">
+                      <input type="checkbox" name="role_{{ u.id }}" value="{{ p.name }}"
+                        {% if p.name in usuario_roles_lista(u) %}checked{% endif %}
+                        style="width:16px; height:16px; accent-color:var(--accent);">
+                      {{ p.name }}
+                    </label>
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:10px; align-items:center;">
+    <button type="submit" class="btn-primary" style="width:auto; min-width:200px; padding:12px 24px;">
+      💾 Salvar Atribuições
+    </button>
+    <a href="{{ url_for('roles') }}" class="btn-ghost" style="width:auto; padding:12px 20px;">
+      Cancelar
+    </a>
+  </div>
+</form>
+
+{% endblock %}

@@ -1,60 +1,142 @@
 {% extends "base.html" %}
-{% set titulo_pagina = "Novo Produto" %}
+{% set titulo_pagina = ("Editar " ~ produto.nome) if is_edicao else "Novo Produto" %}
+{% set subtitulo = "Edição da receita técnica e custos" if is_edicao else "Cadastro de produto e matérias-primas" %}
 {% block conteudo %}
 
-<form method="post">
-
-  <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
-
-  <div style="margin-bottom:18px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
-      📝 NOME DO PRODUTO
-    </label>
-    <input name="nome" required placeholder="Ex: Bolsa Transversal Pequena" class="input-vintage" style="font-size:18px !important; font-family:'Playfair Display',serif;">
+<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+  <div>
+    <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">
+      {% if is_edicao %}✏️ Editar Bolsa / Receita: {{ produto.nome }}{% else %}➕ Cadastrar Nova Bolsa / Produto{% endif %}
+    </h3>
+    <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+      {% if is_edicao %}
+        Altere os materiais necessários, quantidades da receita, preços e estoque pronta-entrega
+      {% else %}
+        Defina os materiais consumidos para calcular automaticamente custo, margem e baixa de estoque
+      {% endif %}
+    </p>
   </div>
+  <a href="{{ url_for('produtos') }}" class="btn-ghost" style="padding:6px 12px; font-size:15px; min-height:34px;">
+    ← Voltar ao Catálogo
+  </a>
+</div>
 
-  <div style="margin-bottom:18px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:14px;">
-      🎨 ÍCONE
-    </label>
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      {% for e in emojis %}
-      <label style="display:flex; align-items:center; justify-content:center; width:50px; height:50px;
-                    background: {{ 'var(--accent-lt)' if loop.first else 'var(--card)' }};
-                    border:1.5px solid {{ 'var(--primary)' if loop.first else 'var(--border)' }};
-                    border-radius:12px; cursor:pointer;" id="lbl-emoji-{{ loop.index }}">
-        <input type="radio" name="emoji" value="{{ e }}" {% if loop.first %}checked{% endif %} onchange="highlightEmoji()" style="display:none;">
-        <span style="font-size:24px;">{{ e }}</span>
+<form method="post" id="form-produto">
+
+  <div class="card" style="padding:18px; margin-bottom:18px;">
+    <h4 class="font-serif" style="margin:0 0 14px 0; color:var(--primary); font-size:17px;">
+      👜 Dados Principais do Produto
+    </h4>
+
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
+        📝 NOME DO PRODUTO / BOLSA <span style="color:var(--danger);">*</span>
       </label>
-      {% endfor %}
+      <input name="nome" value="{{ produto.nome if produto else '' }}" required placeholder="Ex: Bolsa Transversal Pequena" class="input-vintage" style="font-size:18px !important; font-family:'Playfair Display',serif;">
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:15px;">
+        🎨 ÍCONE / EMOJI DA BOLSA
+      </label>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        {% set prod_emoji = produto.emoji if produto else (emojis[0] if emojis else '👜') %}
+        {% for e in emojis %}
+        <label style="display:flex; align-items:center; justify-content:center; width:50px; height:50px;
+                      background: {{ 'var(--accent-lt)' if e == prod_emoji else 'var(--card)' }};
+                      border:1.5px solid {{ 'var(--primary)' if e == prod_emoji else 'var(--border)' }};
+                      border-radius:12px; cursor:pointer;" id="lbl-emoji-{{ loop.index }}">
+          <input type="radio" name="emoji" value="{{ e }}" {% if e == prod_emoji %}checked{% endif %} onchange="highlightEmoji()" style="display:none;">
+          <span style="font-size:24px;">{{ e }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
+        🔢 CÓDIGO GTIN / CÓDIGO DE BARRAS DA BOLSA <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+      </label>
+      <div style="display:flex; gap:8px;">
+        <input name="gtin" id="inp-gtin-produto" value="{{ produto.gtin if produto else '' }}" placeholder="Ex: 7899876543210" inputmode="numeric" class="input-vintage" style="font-size:17px !important; flex:1;">
+        <button type="button" class="btn-scan" onclick="abrirScanner('inp-gtin-produto')">
+          📷 Escanear
+        </button>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px;">
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
+          💰 PREÇO DE VENDA (R$)
+        </label>
+        <input name="preco_venda" id="inp-preco-venda" type="number" min="0" step="0.01" value="{{ produto.preco_venda if produto and produto.preco_venda is not none else '' }}" placeholder="0.00" class="input-vintage" style="text-align:center; font-size:20px !important; font-weight:700;" oninput="atualizarResumoFinanceiro()">
+      </div>
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
+          🛍️ PEÇAS PRONTAS EM ESTOQUE
+        </label>
+        <input name="estoque_pronto" type="number" min="0" step="1" inputmode="numeric" value="{{ produto.estoque_pronto if produto and produto.estoque_pronto is not none else 0 }}" placeholder="0" class="input-vintage" style="text-align:center; font-size:20px !important; font-weight:700;">
+      </div>
     </div>
   </div>
 
-  <div style="margin-bottom:18px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">💰 PREÇO DE VENDA (R$)</label>
-    <input name="preco_venda" type="number" min="0" step="0.01" placeholder="0,00" class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
+  <!-- Seção da Receita e Insumos -->
+  <div class="card" style="padding:18px; margin-bottom:18px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+      <div>
+        <h4 class="font-serif" style="margin:0; color:var(--primary); font-size:17px;">
+          🧵 Receita Técnica — Matérias-Primas Necessárias
+        </h4>
+        <p class="font-crimson" style="font-size:14px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+          Insumos consumidos para confeccionar 1 unidade desta bolsa.
+        </p>
+      </div>
+      <button type="button" class="btn-secondary" onclick="adicionarLinha()" style="padding:6px 12px; font-size:14px !important; min-height:34px;">
+        ➕ Adicionar Material
+      </button>
+    </div>
+
+    <!-- Lista de Linhas de Receita -->
+    <div id="linhas-receita" style="display:flex; flex-direction:column; gap:10px; margin-bottom:16px;"></div>
+
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <button type="button" class="btn-secondary" style="width:auto; padding:8px 16px; font-size:14px !important;" onclick="adicionarLinha()">
+        ➕ + Adicionar mais um material à receita
+      </button>
+    </div>
+
+    <!-- Painel de Recálculo Dinâmico (Custo, Preço e Margem) -->
+    <div style="background:var(--accent-lt); border:1.5px solid var(--accent); border-radius:12px; padding:14px; margin-top:10px;">
+      <div style="font-size:14px; font-weight:700; color:var(--primary); margin-bottom:8px;">
+        📊 Simulação em Tempo Real da Bolsa:
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; text-align:center;">
+        <div style="background:var(--card); padding:8px 10px; border-radius:8px; border:1px solid var(--border);">
+          <div class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">Custo de Materiais</div>
+          <div id="kpi-custo-total" style="font-size:18px; font-weight:800; color:var(--primary); margin-top:2px;">R$ 0,00</div>
+        </div>
+        <div style="background:var(--card); padding:8px 10px; border-radius:8px; border:1px solid var(--border);">
+          <div class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">Preço de Venda</div>
+          <div id="kpi-preco-venda" style="font-size:18px; font-weight:800; color:var(--text); margin-top:2px;">R$ 0,00</div>
+        </div>
+        <div id="box-margem" style="background:#d4edda; padding:8px 10px; border-radius:8px; border:1px solid #c3e6cb;">
+          <div class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">Margem Estimada</div>
+          <div id="kpi-margem-total" style="font-size:18px; font-weight:800; color:var(--success); margin-top:2px;">R$ 0,00</div>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="ornament" style="margin:16px 0;">· · ·</div>
-
-  <div style="margin-bottom:12px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
-      🧵 RECEITA — QUAIS MATERIAIS ESTE PRODUTO USA?
-    </label>
-    <p class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">
-      Isso é usado para calcular o custo do produto e para dar baixa automática no estoque quando um pedido for concluído.
-    </p>
+  <!-- Botões de Ação -->
+  <div style="display:flex; gap:12px; justify-content:flex-start; align-items:center; flex-wrap:wrap; margin-top:20px;">
+    <button type="submit" class="btn-primary" style="min-width:220px; font-size:17px !important; padding:14px 24px;">
+      {% if is_edicao %}💾 Salvar Alterações na Receita{% else %}✅ Cadastrar Bolsa / Produto{% endif %}
+    </button>
+    <a href="{{ url_for('produtos') }}" class="btn-ghost" style="padding:14px 20px; font-size:16px;">
+      Cancelar
+    </a>
   </div>
-
-  <div id="linhas-receita"></div>
-
-  <button type="button" class="btn-secondary" style="margin-bottom:24px;" onclick="adicionarLinha()">+ Adicionar material à receita</button>
-
-  <div class="ornament" style="margin-bottom:20px;">· · ·</div>
-
-  <button type="submit" class="btn-primary" style="font-size:18px !important; padding:16px;">
-    ✅ Salvar Produto
-  </button>
 
 </form>
 {% endblock %}
@@ -64,37 +146,162 @@
 function highlightEmoji() {
   document.querySelectorAll('[id^="lbl-emoji-"]').forEach(el => {
     const inp = el.querySelector('input[type=radio]');
-    el.style.borderColor = inp.checked ? 'var(--primary)' : 'var(--border)';
-    el.style.background  = inp.checked ? 'var(--accent-lt)' : 'var(--card)';
+    if (inp) {
+      el.style.borderColor = inp.checked ? 'var(--primary)' : 'var(--border)';
+      el.style.background  = inp.checked ? 'var(--accent-lt)' : 'var(--card)';
+    }
   });
 }
 highlightEmoji();
 
 const materiaisDisponiveis = {{ materiais|tojson }};
+const receitaInicial = {{ (produto.receita if produto and produto.receita else [])|tojson }};
 const container = document.getElementById('linhas-receita');
 let contador = 0;
 
-function adicionarLinha() {
-  contador++;
-  const div = document.createElement('div');
-  div.style.cssText = 'display:flex; gap:8px; margin-bottom:8px; align-items:center;';
-  div.id = 'linha-' + contador;
-
-  const opcoes = materiaisDisponiveis.map(m =>
-    `<option value="${m.id}">${m.emoji} ${m.nome} (${m.unidade})</option>`
-  ).join('');
-
-  div.innerHTML = `
-    <select name="material_id[]" class="input-vintage" style="flex:2;">
-      <option value="">— Selecione o material —</option>
-      ${opcoes}
-    </select>
-    <input name="material_qtd[]" type="number" min="0" step="0.01" placeholder="Qtd" class="input-vintage" style="flex:1;">
-    <button type="button" class="btn-ghost" style="padding:10px 12px; flex-shrink:0;" onclick="document.getElementById('linha-${contador}').remove()">✕</button>
-  `;
-  container.appendChild(div);
+function isUnidadeInteira(u) {
+  const x = (u || '').toLowerCase().trim();
+  return x === 'unidades' || x === 'unidade' || x === 'unid' || x === 'pares' || x === 'pacotes';
 }
 
-if (materiaisDisponiveis.length > 0) { adicionarLinha(); }
+function formatarMoeda(val) {
+  return 'R$ ' + Number(val || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function atualizarResumoFinanceiro() {
+  let custoTotal = 0;
+  const rows = container.querySelectorAll('.linha-receita-item');
+  rows.forEach(row => {
+    const sel = row.querySelector('select[name="material_id[]"]');
+    const inpQtd = row.querySelector('input[name="material_qtd[]"]');
+    const badgeCusto = row.querySelector('.badge-custo-item');
+
+    if (sel && sel.value && inpQtd) {
+      const mat = materiaisDisponiveis.find(m => m.id === sel.value);
+      const qtd = parseFloat(inpQtd.value) || 0;
+      if (mat) {
+        const custoItem = (mat.custo || 0) * qtd;
+        custoTotal += custoItem;
+        if (badgeCusto) {
+          badgeCusto.textContent = `${qtd} ${mat.unidade} × ${formatarMoeda(mat.custo)} = ${formatarMoeda(custoItem)}`;
+        }
+      }
+    } else if (badgeCusto) {
+      badgeCusto.textContent = '';
+    }
+  });
+
+  const inpPreco = document.getElementById('inp-preco-venda');
+  const preco = parseFloat(inpPreco ? inpPreco.value : 0) || 0;
+  const margem = preco - custoTotal;
+
+  document.getElementById('kpi-custo-total').textContent = formatarMoeda(custoTotal);
+  document.getElementById('kpi-preco-venda').textContent = formatarMoeda(preco);
+  
+  const kpiMargem = document.getElementById('kpi-margem-total');
+  const boxMargem = document.getElementById('box-margem');
+  kpiMargem.textContent = formatarMoeda(margem);
+
+  if (margem < 0) {
+    boxMargem.style.background = 'var(--danger-lt)';
+    boxMargem.style.borderColor = 'var(--danger)';
+    kpiMargem.style.color = 'var(--danger)';
+  } else {
+    boxMargem.style.background = '#d4edda';
+    boxMargem.style.borderColor = '#c3e6cb';
+    kpiMargem.style.color = 'var(--success)';
+  }
+}
+
+function atualizarUnidadeLinha(sel) {
+  const mid = sel.value;
+  const mat = materiaisDisponiveis.find(m => m.id === mid);
+  const row = sel.closest('.linha-receita-item');
+  const inpQtd = row.querySelector('input[name="material_qtd[]"]');
+  const lblUnit = row.querySelector('.lbl-unidade-texto');
+
+  if (mat && isUnidadeInteira(mat.unidade)) {
+    inpQtd.step = '1';
+    inpQtd.min = '1';
+    inpQtd.inputMode = 'numeric';
+    inpQtd.placeholder = 'Qtd (' + mat.unidade + ')';
+    if (lblUnit) lblUnit.textContent = mat.unidade;
+    if (inpQtd.value && inpQtd.value.includes('.')) {
+      inpQtd.value = Math.max(1, Math.round(parseFloat(inpQtd.value)));
+    }
+  } else if (mat) {
+    inpQtd.step = '0.01';
+    inpQtd.min = '0.01';
+    inpQtd.inputMode = 'decimal';
+    inpQtd.placeholder = 'Qtd (' + mat.unidade + ')';
+    if (lblUnit) lblUnit.textContent = mat.unidade;
+  } else {
+    inpQtd.step = '0.01';
+    inpQtd.min = '0.01';
+    inpQtd.placeholder = 'Qtd';
+    if (lblUnit) lblUnit.textContent = '';
+  }
+  atualizarResumoFinanceiro();
+}
+
+function adicionarLinha(matId = '', qtdValor = '') {
+  contador++;
+  const div = document.createElement('div');
+  div.className = 'linha-receita-item card-ornament';
+  div.style.cssText = 'background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px;';
+  div.id = 'linha-' + contador;
+
+  const opcoes = materiaisDisponiveis.map(m => {
+    const isSelected = m.id === matId ? 'selected' : '';
+    return `<option value="${m.id}" ${isSelected}>${m.emoji || '🔹'} ${m.nome} (${m.unidade}) — ${formatarMoeda(m.custo)}/${m.unidade}</option>`;
+  }).join('');
+
+  div.innerHTML = `
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <div style="flex:3; min-width:200px;">
+        <select name="material_id[]" class="input-vintage" style="width:100%;" onchange="atualizarUnidadeLinha(this)" required>
+          <option value="">— Selecione o material / insumo —</option>
+          ${opcoes}
+        </select>
+      </div>
+      <div style="flex:1.5; min-width:110px; display:flex; align-items:center; gap:6px;">
+        <input name="material_qtd[]" type="number" min="0.01" step="0.01" value="${qtdValor}" placeholder="Qtd" required class="input-vintage" style="width:100%; text-align:center; font-weight:700;" oninput="atualizarResumoFinanceiro()">
+      </div>
+      <button type="button" class="btn-ghost" style="padding:8px 12px; color:var(--danger); border-color:var(--danger-lt); flex-shrink:0;" title="Remover este material" onclick="removerLinha('linha-${contador}')">
+        🗑️
+      </button>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:13px; color:var(--muted); font-style:italic;">
+      <span class="badge-custo-item font-crimson" style="color:var(--primary); font-weight:600;"></span>
+      <span class="lbl-unidade-texto"></span>
+    </div>
+  `;
+  container.appendChild(div);
+
+  const sel = div.querySelector('select[name="material_id[]"]');
+  if (sel && matId) {
+    atualizarUnidadeLinha(sel);
+  } else {
+    atualizarResumoFinanceiro();
+  }
+}
+
+function removerLinha(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.remove();
+    atualizarResumoFinanceiro();
+  }
+}
+
+// Inicialização das linhas
+if (receitaInicial && receitaInicial.length > 0) {
+  receitaInicial.forEach(item => {
+    adicionarLinha(item.material_id, item.quantidade);
+  });
+} else if (materiaisDisponiveis.length > 0) {
+  adicionarLinha();
+}
+atualizarResumoFinanceiro();
 </script>
 {% endblock %}

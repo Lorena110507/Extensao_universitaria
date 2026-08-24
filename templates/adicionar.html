@@ -3,33 +3,45 @@
 {% block conteudo %}
 
 <div style="margin-bottom:18px;">
-  <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+  <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
     🔍 JÁ EXISTE NO ESTOQUE? (busque por nome ou GTIN)
   </label>
-  <input id="busca-existente" placeholder="Digite o nome ou escaneie o GTIN..." class="input-vintage" style="font-size:16px !important;" autocomplete="off">
+  <div style="display:flex; gap:8px;">
+    <input id="busca-existente" placeholder="Digite o nome ou escaneie o GTIN..." class="input-vintage" style="font-size:17px !important; flex:1;" autocomplete="off">
+    <button type="button" class="btn-scan" onclick="abrirScanner('busca-existente', () => document.getElementById('busca-existente').dispatchEvent(new Event('input')))">
+      📷 Escanear
+    </button>
+  </div>
   <div id="resultado-busca" style="margin-top:8px; display:none;"></div>
 </div>
 
-<form method="post" enctype="multipart/form-data">
+<form method="post" enctype="multipart/form-data" onsubmit="this.querySelector('button[type=submit]').disabled=true;">
+
+  <input type="hidden" name="form_token" value="{{ form_token }}">
 
   <div class="ornament" style="margin:8px 0 16px;">· · ·</div>
 
   <div style="margin-bottom:18px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
       📝 NOME DO MATERIAL
     </label>
     <input name="nome" required placeholder="Ex: Mosquetão Dourado 25mm" class="input-vintage" style="font-size:18px !important; font-family:'Playfair Display',serif;">
   </div>
 
   <div style="margin-bottom:18px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
-      🔢 CÓDIGO GTIN <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">
+      🔢 CÓDIGO GTIN / CÓDIGO DE BARRAS <span style="font-weight:400; color:var(--muted);">(opcional)</span>
     </label>
-    <input name="gtin" placeholder="Ex: 7891234567895" inputmode="numeric" class="input-vintage" style="font-size:16px !important;">
+    <div style="display:flex; gap:8px;">
+      <input name="gtin" id="inp-gtin" placeholder="Ex: 7891234567895" inputmode="numeric" class="input-vintage" style="font-size:17px !important; flex:1;">
+      <button type="button" class="btn-scan" onclick="abrirScanner('inp-gtin')">
+        📷 Escanear
+      </button>
+    </div>
   </div>
 
   <div style="margin-bottom:18px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:14px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:10px; font-size:15px;">
       🏷️ CATEGORIA
     </label>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
@@ -39,47 +51,50 @@
                     border-radius:12px; padding:12px 14px; cursor:pointer;" id="lbl-{{ cat }}">
         <input type="radio" name="categoria" value="{{ cat }}" {% if loop.first %}checked{% endif %} onchange="highlightCat()" style="accent-color:var(--primary); width:18px; height:18px;">
         <span style="font-size:22px;">{{ emoji }}</span>
-        <span class="font-crimson" style="font-size:16px; color:var(--text);">{{ cat }}</span>
+        <span class="font-crimson" style="font-size:17px; color:var(--text);">{{ cat }}</span>
       </label>
       {% endfor %}
+    </div>
+    <div id="custom-cat-box" style="display:none; margin-top:10px;">
+      <input name="categoria_custom" id="categoria_custom" placeholder="Digite a nova categoria..." class="input-vintage" style="font-size:17px !important;">
     </div>
   </div>
 
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px;">
     <div>
-      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">📏 QUANTIDADE *</label>
-      <input name="quantidade" type="number" min="0" step="0.1" placeholder="Ex: 20" required class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">📏 QUANTIDADE *</label>
+      <input name="quantidade" id="inp-quantidade" type="number" min="1" step="1" placeholder="Ex: 20" required class="input-vintage" style="text-align:center; font-size:22px !important; font-weight:700;">
     </div>
     <div>
-      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">📐 UNIDADE</label>
-      <select name="unidade" class="input-vintage">
-        {% for u in unidades %}<option>{{ u }}</option>{% endfor %}
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">📐 UNIDADE</label>
+      <select name="unidade" id="sel-unidade" class="input-vintage" onchange="atualizarPassoUnidade()">
+        {% for u in unidades %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
       </select>
     </div>
   </div>
 
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px;">
     <div>
-      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">⚠️ ALERTA MÍNIMO</label>
-      <input name="quantidade_minima" type="number" min="0" step="0.1" placeholder="5" value="5" class="input-vintage" style="text-align:center; font-size:20px !important; font-weight:700;">
-      <p class="font-crimson" style="font-size:12px; color:var(--muted); font-style:italic; margin-top:4px;">Avisa abaixo disso</p>
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">⚠️ ALERTA MÍNIMO</label>
+      <input name="quantidade_minima" id="inp-qtd-minima" type="number" min="0" step="1" placeholder="5" value="5" class="input-vintage" style="text-align:center; font-size:20px !important; font-weight:700;">
+      <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic; margin-top:4px;">Avisa abaixo disso</p>
     </div>
     <div>
-      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">💰 CUSTO (R$)</label>
+      <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:15px;">💰 CUSTO (R$)</label>
       <input name="custo" type="number" min="0" step="0.01" placeholder="0,00" class="input-vintage" style="text-align:center; font-size:20px !important; font-weight:700;">
-      <p class="font-crimson" style="font-size:12px; color:var(--muted); font-style:italic; margin-top:4px;">Por unidade</p>
+      <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic; margin-top:4px;">Por unidade</p>
     </div>
   </div>
 
   <div style="margin-bottom:24px;">
-    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:14px;">
+    <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:8px; font-size:15px;">
       📷 FOTO DO MATERIAL <span style="font-weight:400; color:var(--muted);">(opcional)</span>
     </label>
     <label style="display:flex; flex-direction:column; align-items:center; justify-content:center;
                   height:110px; border:2px dashed var(--border-dk); border-radius:14px;
                   background:var(--card); cursor:pointer;" id="foto-area">
       <span style="font-size:32px;" id="foto-icon">📷</span>
-      <span class="font-crimson" style="color:var(--muted); font-style:italic; font-size:14px; margin-top:4px;" id="foto-txt">Toque para adicionar foto</span>
+      <span class="font-crimson" style="color:var(--muted); font-style:italic; font-size:15px; margin-top:4px;" id="foto-txt">Toque para adicionar foto</span>
       <input type="file" name="foto" accept="image/*" capture="environment" style="display:none;"
              onchange="document.getElementById('foto-icon').textContent='✅'; document.getElementById('foto-txt').textContent=this.files[0]?.name||'Foto selecionada';">
     </label>
@@ -97,14 +112,66 @@
 {% block scripts %}
 <script>
 function highlightCat() {
+  let selectedVal = '';
   document.querySelectorAll('[id^="lbl-"]').forEach(el => {
     const inp = el.querySelector('input[type=radio]');
     el.style.borderColor = inp.checked ? 'var(--primary)' : 'var(--border)';
     el.style.background  = inp.checked ? 'var(--accent-lt)' : 'var(--card)';
+    if (inp.checked) selectedVal = inp.value;
   });
+  const customBox = document.getElementById('custom-cat-box');
+  const customInp = document.getElementById('categoria_custom');
+  if (selectedVal === 'Outros') {
+    customBox.style.display = 'block';
+    customInp.focus();
+  } else {
+    customBox.style.display = 'none';
+    customInp.value = '';
+  }
 }
 highlightCat();
 document.querySelectorAll('input[name=categoria]').forEach(r => r.addEventListener('change', highlightCat));
+
+function isUnidadeInteira(u) {
+  const x = (u || '').toLowerCase().trim();
+  return x === 'unidades' || x === 'unidade' || x === 'unid' || x === 'pares' || x === 'pacotes';
+}
+
+function atualizarPassoUnidade() {
+  const selUnid = document.getElementById('sel-unidade');
+  const inpQtd = document.getElementById('inp-quantidade');
+  const inpMin = document.getElementById('inp-qtd-minima');
+  const unid = selUnid.value;
+  const inteira = isUnidadeInteira(unid);
+
+  if (inteira) {
+    inpQtd.step = '1';
+    inpQtd.min = '1';
+    inpQtd.inputMode = 'numeric';
+    inpMin.step = '1';
+    inpMin.min = '0';
+    inpMin.inputMode = 'numeric';
+    if (inpQtd.value && inpQtd.value.includes('.')) {
+      inpQtd.value = Math.max(1, Math.round(parseFloat(inpQtd.value)));
+    }
+  } else {
+    inpQtd.step = '0.01';
+    inpQtd.min = '0.01';
+    inpQtd.inputMode = 'decimal';
+    inpMin.step = '0.01';
+    inpMin.min = '0';
+    inpMin.inputMode = 'decimal';
+  }
+}
+
+document.getElementById('inp-quantidade').addEventListener('keydown', (e) => {
+  const unid = document.getElementById('sel-unidade').value;
+  if (isUnidadeInteira(unid) && (e.key === '.' || e.key === ',' || e.key === 'e' || e.key === 'E')) {
+    e.preventDefault();
+  }
+});
+
+atualizarPassoUnidade();
 
 // Busca em tempo real por nome/GTIN para evitar cadastro duplicado.
 const materiais = {{ materiais_json|tojson }};
@@ -120,13 +187,13 @@ buscaEl.addEventListener('input', () => {
   ).slice(0, 5);
 
   if (achados.length === 0) {
-    resultadoEl.innerHTML = '<p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:13px;">Nenhum material existente encontrado — pode cadastrar um novo abaixo.</p>';
+    resultadoEl.innerHTML = '<p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:15px;">Nenhum material existente encontrado — pode cadastrar um novo abaixo.</p>';
   } else {
     resultadoEl.innerHTML = achados.map(m => `
       <div style="display:flex; justify-content:space-between; align-items:center; background:var(--accent-lt);
                   border:1.5px solid var(--accent); border-radius:10px; padding:10px 12px; margin-bottom:6px;">
-        <span class="font-crimson" style="font-size:14px;">${m.nome}${m.gtin ? ' · GTIN ' + m.gtin : ''} — ${m.quantidade} ${m.unidade}</span>
-        <a href="/baixa?mid=${m.id}" class="btn-ghost" style="font-size:12px !important; padding:6px 10px;">Já existe →</a>
+        <span class="font-crimson" style="font-size:15px;">${m.nome}${m.gtin ? ' · GTIN ' + m.gtin : ''} — ${m.quantidade} ${m.unidade}</span>
+        <a href="/baixa?mid=${m.id}" class="btn-ghost" style="font-size:14px !important; padding:6px 10px;">Já existe →</a>
       </div>
     `).join('');
   }

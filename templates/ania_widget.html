@@ -1,0 +1,89 @@
+<!-- ── Widget Chatbot Ania (Assistente Virtual de Voz e Texto) ────────── -->
+{% if g.get('user') %}
+<!-- Botão Flutuante (FAB) -->
+<div id="ania-fab" title="Conversar com a Ania (Assistente do Ateliê)">
+  <div class="ania-fab-avatar">
+    <div class="ania-fab-pulse"></div>
+    🧵
+  </div>
+  <div class="ania-fab-text">
+    <span class="ania-fab-name">Ania</span>
+    <span class="ania-fab-tagline">Assistente Virtual 🎙️</span>
+  </div>
+</div>
+
+<!-- Overlay Modal -->
+<div id="ania-modal-overlay"></div>
+
+<!-- Janela do Chat -->
+<div id="ania-chat-window" role="dialog" aria-label="Chat com Assistente Ania">
+  
+  <!-- Cabeçalho -->
+  <div class="ania-header">
+    <div class="ania-header-info">
+      <div class="ania-avatar-sm">🧵</div>
+      <div>
+        <div class="ania-title">Ania · Ateliê Haiti</div>
+        <div class="ania-status">
+          <span class="ania-status-dot"></span>
+          <span id="ania-status-text">Online</span>
+          <div class="ania-mode-switch" id="ania-mode-switch" role="group" aria-label="Modo de Operação">
+            <button type="button" id="ania-btn-mode-ia" class="ania-mode-btn active" title="Usar Modelo de Inteligência Artificial (Ollama)">✨ IA</button>
+            <button type="button" id="ania-btn-mode-rules" class="ania-mode-btn" title="Usar Modo de Contingência (Regras Determinísticas)">⚙️ Contingência</button>
+          </div>
+          <span id="ania-engine-badge" class="ania-engine-badge" title="Status do Motor Ativo">✨ IA</span>
+        </div>
+      </div>
+    </div>
+    <div class="ania-header-actions">
+      <button type="button" id="ania-btn-sound" class="ania-btn-icon active" title="Alternar voz da Ania">🔊</button>
+      <button type="button" id="ania-btn-clear" class="ania-btn-icon" title="Limpar conversa">🗑️</button>
+      <button type="button" id="ania-btn-close" class="ania-btn-icon" title="Fechar chat">✕</button>
+    </div>
+  </div>
+
+  <!-- Área de Mensagens -->
+  <div class="ania-messages" id="ania-messages">
+    <!-- Mensagem Inicial de Boas-Vindas -->
+    <div class="ania-msg ania-msg-bot">
+      <div class="ania-msg-avatar">🧵</div>
+      <div class="ania-msg-bubble">
+        <p>Olá, <strong>{{ g.user.get('nome') or g.user.get('username') }}</strong>! Eu sou a <strong>Ania</strong>, sua assistente inteligente do ateliê. ✨</p>
+        <p>Você pode me pedir tarefas por <strong>voz</strong> ou <strong>texto</strong>, como consultar estoque, dar baixa, criar pedidos ou ver o financeiro.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barra de Visualização de Áudio (Quando estiver ouvindo o microfone) -->
+  <div class="ania-voice-listening" id="ania-voice-listening">
+    <div class="ania-wave-container">
+      <div class="ania-wave-bar"></div>
+      <div class="ania-wave-bar"></div>
+      <div class="ania-wave-bar"></div>
+      <div class="ania-wave-bar"></div>
+    </div>
+    <span id="ania-voice-status-text">Ouvindo... Fale agora</span>
+  </div>
+
+  <!-- Barra de Sugestões Rápidas (Chips) -->
+  <div class="ania-suggestions-bar" id="ania-suggestions-bar">
+    <button type="button" class="ania-chip" onclick="document.getElementById('ania-input').value='📦 Consultar estoque'; document.getElementById('ania-btn-send').click();">📦 Estoque</button>
+    <button type="button" class="ania-chip" onclick="document.getElementById('ania-input').value='🧾 Pedidos pendentes'; document.getElementById('ania-btn-send').click();">🧾 Pedidos</button>
+    <button type="button" class="ania-chip" onclick="document.getElementById('ania-input').value='📊 Ver alertas'; document.getElementById('ania-btn-send').click();">📊 Alertas</button>
+    <button type="button" class="ania-chip" onclick="document.getElementById('ania-input').value='💰 Resumo financeiro'; document.getElementById('ania-btn-send').click();">💰 Financeiro</button>
+    <button type="button" class="ania-chip" onclick="document.getElementById('ania-input').value='Minhas permissões'; document.getElementById('ania-btn-send').click();">🔒 Permissões</button>
+  </div>
+
+  <!-- Rodapé / Formulário de Entrada -->
+  <div class="ania-footer">
+    <button type="button" id="ania-btn-mic" class="ania-btn-mic" title="Falar por comando de voz">
+      🎙️
+    </button>
+    <input type="text" id="ania-input" placeholder="Digite ou fale com a Ania..." autocomplete="off">
+    <button type="button" id="ania-btn-send" class="ania-btn-send" title="Enviar mensagem">
+      ➤
+    </button>
+  </div>
+
+</div>
+{% endif %}

@@ -2,26 +2,41 @@
 {% set subtitulo = "Gestão Artesanal" %}
 {% block conteudo %}
 
+{% if can_access_tab('estoque') %}
 <div class="card" style="padding:20px; text-align:center; margin-bottom:16px;">
   <p class="font-serif" style="font-size:36px; font-weight:700; color:var(--primary);">{{ total_itens }}</p>
   <p class="font-crimson" style="color:var(--muted); font-style:italic;">materiais no estoque</p>
 </div>
+{% endif %}
 
-{% if baixo_estoque %}
+{% if baixo_estoque and can_access_tab('relatorios') %}
 <div class="card" style="padding:16px; margin-bottom:16px; border:1.5px solid var(--danger);">
   <p style="color:var(--danger); font-weight:700; margin-bottom:8px;">⚠️ Estoque baixo</p>
   {% for m in baixo_estoque %}
-  <p class="font-crimson" style="font-size:14px; margin-bottom:4px;">{{ m.emoji }} {{ m.nome }} — {{ m.quantidade }} {{ m.unidade }}</p>
+  <p class="font-crimson" style="font-size:15px; margin-bottom:4px;">{{ m.emoji }} {{ m.nome }} — {{ m.quantidade }} {{ m.unidade }}</p>
   {% endfor %}
 </div>
 {% endif %}
 
+{% if can_access_tab('estoque') %}
 <a href="{{ url_for('estoque') }}" class="btn-primary" style="margin-bottom:12px;">📦 Ver Estoque</a>
+{% endif %}
+{% if can_access_tab('adicionar') %}
 <a href="{{ url_for('adicionar') }}" class="btn-secondary" style="margin-bottom:12px;">➕ Adicionar Material</a>
-<a href="{{ url_for('baixa') }}" class="btn-secondary">✂️ Dar Baixa</a>
+{% endif %}
+{% if can_access_tab('baixa') %}
+<a href="{{ url_for('baixa') }}" class="btn-secondary" style="margin-bottom:12px;">✂️ Dar Baixa</a>
+{% endif %}
+{% if can_access_tab('pedidos') %}
+<a href="{{ url_for('pedidos') }}" class="btn-secondary" style="margin-bottom:12px;">🧾 Pedidos dos Clientes</a>
+{% endif %}
+{% if can_access_tab('financeiro') %}
+<a href="{{ url_for('financeiro') }}" class="btn-secondary" style="margin-bottom:12px;">💰 Financeiro</a>
+{% endif %}
 
 <div class="ornament" style="margin-top:28px;">✦ ✦ ✦</div>
-<p class="font-crimson" style="text-align:center; color:var(--muted); font-style:italic; font-size:13px; margin-top:6px;">
-  Conectados pela Comunidade · Favela do Haiti, SP
+<p class="font-crimson" style="text-align:center; color:var(--muted); font-style:italic; font-size:15px; margin-top:6px;">
+  Conectados pela Comunidade · Comunidade do Haiti, SP
 </p>
 {% endblock %}
+

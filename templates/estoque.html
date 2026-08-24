@@ -3,15 +3,20 @@
 {% set subtitulo = total ~ " item(s)" %}
 {% block conteudo %}
 
-<form method="get" style="margin-bottom:12px;">
+<form method="get" id="form-busca-estoque" style="margin-bottom:12px;">
   <input type="hidden" name="cat" value="{{ cat_ativa }}">
-  <input name="q" value="{{ q }}" placeholder="🔍  Buscar por nome ou código GTIN..." class="input-vintage" style="font-size:16px !important;">
+  <div style="display:flex; gap:8px;">
+    <input name="q" id="inp-busca-estoque" value="{{ q }}" placeholder="🔍  Buscar por nome ou código GTIN..." class="input-vintage" style="font-size:17px !important; flex:1;">
+    <button type="button" class="btn-scan" onclick="abrirScanner('inp-busca-estoque', () => document.getElementById('form-busca-estoque').submit())">
+      📷 Escanear
+    </button>
+  </div>
 </form>
 
 <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px;">
   {% for c in ["Todos"] + categorias %}
   <a href="{{ url_for('estoque', cat=c, q=q) }}" style="padding:7px 16px; border-radius:20px; white-space:nowrap;
-            font-size:14px; font-weight:700; text-decoration:none; flex-shrink:0;
+            font-size:15px; font-weight:700; text-decoration:none; flex-shrink:0;
             font-family:'Crimson Text',serif; font-style:italic;
             {% if cat_ativa == c %}background:var(--primary); color:#fef9f0; border:1.5px solid var(--primary);
             {% else %}background:var(--card); color:var(--muted); border:1.5px solid var(--border);{% endif %}">
@@ -33,31 +38,37 @@
       <div style="width:72px; height:72px; border-radius:12px; overflow:hidden;
                   background:var(--accent-lt); border:1.5px solid var(--border);
                   display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-        <span style="font-size:30px;">{{ m.emoji }}</span>
+        {% if m.foto %}
+          <a href="/uploads/{{ m.foto }}" target="_blank" style="display:block; width:100%; height:100%;">
+            <img src="/uploads/{{ m.foto }}" alt="{{ m.nome }}" style="width:100%; height:100%; object-fit:cover; display:block;">
+          </a>
+        {% else %}
+          <span style="font-size:30px;">{{ m.emoji }}</span>
+        {% endif %}
       </div>
       <div style="flex:1; min-width:0;">
         <p class="font-serif" style="font-size:17px; font-weight:700; color:var(--text); line-height:1.2;">{{ m.nome }}</p>
         <span class="tag" style="margin-top:4px; display:inline-block;">{{ m.categoria }}</span>
         {% if m.gtin %}
-        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:12px; margin-top:3px;">GTIN: {{ m.gtin }}</p>
+        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:14px; margin-top:3px;">GTIN: {{ m.gtin }}</p>
         {% endif %}
         {% if m.quantidade <= m.quantidade_minima %}
-        <p style="color:var(--danger); font-weight:700; font-size:13px; margin-top:6px;">⚠️ Estoque baixo — mínimo: {{ m.quantidade_minima }} {{ m.unidade }}</p>
+        <p style="color:var(--danger); font-weight:700; font-size:15px; margin-top:6px;">⚠️ Estoque baixo — mínimo: {{ m.quantidade_minima }} {{ m.unidade }}</p>
         {% endif %}
-        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:13px; margin-top:3px;">R$ {{ "%.2f"|format(m.custo) }} / {{ m.unidade }}</p>
+        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:15px; margin-top:3px;">{{ m.custo|moeda }} / {{ m.unidade }}</p>
       </div>
       <div style="text-align:right; flex-shrink:0;">
         <p style="font-size:26px; font-weight:800; color:{{ 'var(--danger)' if m.quantidade <= m.quantidade_minima else 'var(--success)' }}; line-height:1;">{{ m.quantidade }}</p>
-        <p class="font-crimson" style="font-size:13px; color:var(--muted); font-style:italic;">{{ m.unidade }}</p>
+        <p class="font-crimson" style="font-size:15px; color:var(--muted); font-style:italic;">{{ m.unidade }}</p>
       </div>
     </div>
 
     <div style="display:flex; gap:8px; margin-top:12px;">
       <button onclick="document.getElementById('entrada-{{ m.id }}').style.display =
-                       document.getElementById('entrada-{{ m.id }}').style.display === 'none' ? 'block' : 'none'" class="btn-secondary" style="flex:1; font-size:14px !important;">
+                       document.getElementById('entrada-{{ m.id }}').style.display === 'none' ? 'block' : 'none'" class="btn-secondary" style="flex:1; font-size:15px !important;">
         + Adicionar mais
       </button>
-      <a href="{{ url_for('baixa', mid=m.id) }}" class="btn-ghost" style="flex:1; font-size:14px !important;">✂️ Dar baixa</a>
+      <a href="{{ url_for('baixa', mid=m.id) }}" class="btn-ghost" style="flex:1; font-size:15px !important;">✂️ Dar baixa</a>
       <form method="post" action="{{ url_for('estoque_excluir', material_id=m.id) }}" onsubmit="return confirm('Remover {{ m.nome }}?')">
         <button class="btn-ghost" style="padding:10px 12px;">🗑️</button>
       </form>
@@ -66,15 +77,17 @@
     <div id="entrada-{{ m.id }}" style="display:none; margin-top:12px;
          background:var(--accent-lt); border:1.5px solid var(--accent);
          border-radius:12px; padding:14px;">
+      {% set u_lower = (m.unidade|lower) %}
+      {% set is_inteira = u_lower.startswith('unid') or u_lower in ['unidades', 'pares', 'pacotes', 'unidade'] %}
       <form method="post" action="{{ url_for('estoque_entrada', material_id=m.id) }}">
-        <p class="font-crimson" style="font-style:italic; color:var(--primary); margin-bottom:8px; font-size:15px;">
+        <p class="font-crimson" style="font-style:italic; color:var(--primary); margin-bottom:8px; font-size:16px;">
           Quantas {{ m.unidade }} estão entrando?
         </p>
         <div style="display:flex; gap:8px;">
-          <input name="quantidade" type="number" min="0.1" step="0.1" placeholder="Quantidade" class="input-vintage" style="flex:1;">
+          <input name="quantidade" type="number" min="{{ '1' if is_inteira else '0.01' }}" step="{{ '1' if is_inteira else '0.01' }}" inputmode="{{ 'numeric' if is_inteira else 'decimal' }}" placeholder="Quantidade ({{ m.unidade }})" required class="input-vintage" style="flex:1;">
           <input name="motivo" placeholder="Motivo" class="input-vintage" style="flex:1;">
         </div>
-        <button class="btn-primary" style="margin-top:10px; font-size:15px !important;">✅ Confirmar entrada</button>
+        <button class="btn-primary" style="margin-top:10px; font-size:16px !important;">✅ Confirmar entrada</button>
       </form>
     </div>
   </div>

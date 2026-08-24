@@ -23,8 +23,8 @@
         <span style="font-size:24px;">♻️</span>
       </div>
       <div style="flex:1; min-width:0;">
-        <p class="font-serif" style="font-size:16px; font-weight:700; color:var(--text); line-height:1.2;">{{ s.descricao }}</p>
-        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:13px; margin-top:3px;">
+        <p class="font-serif" style="font-size:17px; font-weight:700; color:var(--text); line-height:1.2;">{{ s.descricao }}</p>
+        <p class="font-crimson" style="color:var(--muted); font-style:italic; font-size:15px; margin-top:3px;">
           {{ s.quantidade }} {{ s.unidade }} · registrada em {{ s.data }}
         </p>
       </div>
@@ -34,16 +34,16 @@
     {% if s.status == "Disponível" %}
     <div style="display:flex; gap:8px; margin-top:12px;">
       <form method="post" action="{{ url_for('sobra_reaproveitar', sobra_id=s.id) }}" style="flex:1;">
-        <button class="btn-secondary" style="width:100%; font-size:14px !important;">♻️ Reaproveitar</button>
+        <button class="btn-secondary" style="width:100%; font-size:15px !important;">♻️ Reaproveitar</button>
       </form>
       <form method="post" action="{{ url_for('sobra_descartar', sobra_id=s.id) }}" style="flex:1;" onsubmit="return confirm('Marcar como descartada?')">
-        <button class="btn-ghost" style="width:100%; font-size:14px !important;">🗑️ Descartar</button>
+        <button class="btn-ghost" style="width:100%; font-size:15px !important;">🗑️ Descartar</button>
       </form>
     </div>
     {% else %}
     <div style="display:flex; margin-top:12px;">
       <form method="post" action="{{ url_for('sobra_excluir', sobra_id=s.id) }}" style="flex:1;" onsubmit="return confirm('Remover este registro?')">
-        <button class="btn-ghost" style="width:100%; font-size:14px !important;">Remover registro</button>
+        <button class="btn-ghost" style="width:100%; font-size:15px !important;">Remover registro</button>
       </form>
     </div>
     {% endif %}

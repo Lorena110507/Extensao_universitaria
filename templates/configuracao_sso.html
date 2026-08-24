@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Central de E-mails · Conexão Gmail & SSO" %}
+{% set subtitulo = "Configuração do Google SSO e Envio via Gmail API" %}
+{% set aba_email = "configuracao" %}
+
+{% block conteudo %}
+<div style="max-width: 900px; margin: 0 auto; padding: 0 0 40px 0;">
+  
+  {% include "email_subnav.html" %}
+
+  <!-- Card de Instruções Passo a Passo -->
+  <div class="card" style="padding:22px; margin-bottom:24px; background:linear-gradient(135deg, #fffbf4, #fdf8f0); border:1.5px solid var(--accent); border-radius:14px;">
+    <div style="display:flex; align-items:flex-start; gap:14px;">
+      <div style="font-size:28px; line-height:1;">💡</div>
+      <div style="flex:1;">
+        <h3 class="font-serif" style="margin:0 0 8px 0; color:var(--primary); font-size:17.5px; font-weight:700;">
+          Como configurar no Google Cloud Console (Sem custos):
+        </h3>
+        <ol style="margin:0; padding-left:20px; font-size:14px; color:var(--text); line-height:1.65;">
+          <li>Acesse o <a href="https://console.cloud.google.com/" target="_blank" style="color:var(--primary); font-weight:700; text-decoration:underline;">Google Cloud Console</a> e crie ou selecione seu projeto.</li>
+          <li>Vá em <strong>APIs e Serviços → Tela de consentimento OAuth</strong> e configure para <em>Externo</em> (ou <em>Interno</em> caso use Google Workspace).</li>
+          <li>Vá em <strong>APIs e Serviços → Biblioteca</strong>, pesquise por <strong>Gmail API</strong> e clique em <strong>ATIVAR</strong>.</li>
+          <li>Vá em <strong>Credenciais → Criar Credenciais → ID do cliente OAuth</strong>.</li>
+          <li>Selecione o tipo <strong>Aplicativo da Web</strong>.</li>
+          <li>Em <strong>URIs de redirecionamento autorizados</strong>, adicione exatamente o endereço abaixo:</li>
+        </ol>
+
+        <!-- Caixa de Cópia da URI de Redirecionamento -->
+        <div style="margin-top:12px; display:flex; align-items:center; gap:8px; background:var(--card); padding:10px 14px; border:1px dashed var(--accent); border-radius:8px;">
+          <code id="redirectUriTxt" style="flex:1; font-family:monospace; font-size:13.5px; color:var(--primary); font-weight:bold; word-break:break-all;">{{ redirect_uri }}</code>
+          <button type="button" class="btn-ghost" onclick="copiarUriRedirecionamento()" style="padding:4px 10px; font-size:13px; min-height:30px; display:inline-flex; align-items:center; gap:4px;">
+            📋 Copiar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Formulário de Configuração -->
+  <div class="card card-ornament" style="padding:28px 24px; border-radius:16px; margin-bottom:24px;">
+    <form method="post">
+      
+      <!-- Chave de Ativação do Google SSO -->
+      <div style="background:var(--accent-lt); border:1.5px solid var(--accent); border-radius:12px; padding:16px 18px; margin-bottom:24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+        <div>
+          <strong style="font-size:16px; color:var(--primary); display:block; margin-bottom:2px;">
+            🟢 Status do Google SSO &amp; Gmail
+          </strong>
+          <span style="font-size:13.5px; color:var(--muted);">
+            Quando ativado, habilita o login com o Google e o envio de relatórios via Gmail API.
+          </span>
+        </div>
+        <label style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:15px; font-weight:700; color:var(--primary);">
+          <input type="checkbox" name="ativo" value="1" {% if config_sso.ativo %}checked{% endif %} style="width:20px; height:20px; accent-color:var(--primary);">
+          Ativar Integração Google
+        </label>
+      </div>
+
+      <!-- Google Client ID -->
+      <div style="margin-bottom:20px;">
+        <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14.5px;">
+          ID DO CLIENTE GOOGLE (Client ID) <span style="color:var(--danger);">*</span>
+        </label>
+        <input name="google_client_id" value="{{ config_sso.google_client_id }}" class="input-vintage" style="font-family:monospace; font-size:15px;" placeholder="ex: 1234567890-abc123xyz.apps.googleusercontent.com">
+        <span style="font-size:12.5px; color:var(--muted); margin-top:4px; display:block;">
+          Disponibilizado na tela de credenciais do Google Cloud Console.
+        </span>
+      </div>
+
+      <!-- Google Client Secret -->
+      <div style="margin-bottom:24px;">
+        <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14.5px;">
+          CHAVE SECRETA DO CLIENTE (Client Secret) <span style="color:var(--danger);">*</span>
+        </label>
+        <div style="position:relative;">
+          <input id="clientSecretInput" type="password" name="google_client_secret" value="{{ config_sso.google_client_secret }}" class="input-vintage" style="font-family:monospace; font-size:15px; padding-right:45px;" placeholder="ex: GOCSPX-abc123xyz...">
+          <button type="button" onclick="toggleSenhaSecret()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:18px; color:var(--muted);">
+            👁️
+          </button>
+        </div>
+        <span style="font-size:12.5px; color:var(--muted); margin-top:4px; display:block;">
+          Mantenha esta chave em sigilo. Ela é utilizada para autorizar a conexão com a API do Gmail e Google OAuth.
+        </span>
+      </div>
+
+      <div class="ornament" style="margin:20px 0;">· · ·</div>
+
+      <!-- Regras de Novos Usuários -->
+      <h3 class="font-serif" style="margin:0 0 14px 0; color:var(--primary); font-size:18px; font-weight:700;">
+        ⚙️ Regras de Auto-Cadastro de Novos Usuários
+      </h3>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:18px; margin-bottom:26px;">
+        <!-- Auto Cadastro Toggle -->
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px;">
+          <label style="display:inline-flex; align-items:flex-start; gap:10px; cursor:pointer;">
+            <input type="checkbox" name="auto_cadastro" value="1" {% if config_sso.auto_cadastro %}checked{% endif %} style="width:18px; height:18px; margin-top:2px; accent-color:var(--primary);">
+            <div>
+              <strong style="color:var(--text); font-size:14.5px; display:block;">Permitir Auto-Cadastro</strong>
+              <span style="font-size:13px; color:var(--muted); line-height:1.4; display:block; margin-top:2px;">
+                Se desmarcado, apenas e-mails previamente cadastrados por um Administrador poderão logar via Google.
+              </span>
+            </div>
+          </label>
+        </div>
+
+        <!-- Papel Padrão para Novos Usuários -->
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px;">
+          <label style="display:block; font-weight:700; color:var(--primary); margin-bottom:6px; font-size:14px;">
+            Papel Padrão para Novos Contas
+          </label>
+          <select name="papel_padrao" class="input-vintage" style="font-size:14.5px;">
+            {% for p in papeis %}
+              <option value="{{ p.name }}" {% if config_sso.papel_padrao == p.name %}selected{% endif %}>
+                {{ p.name }}{% if p.description %} — {{ p.description }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <span style="font-size:12.5px; color:var(--muted); margin-top:4px; display:block;">
+            Nível de acesso inicial concedido quando uma pessoa faz o 1º login com o Google.
+          </span>
+        </div>
+      </div>
+
+      <!-- Botões de Ação -->
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:28px;">
+        <a href="{{ url_for('usuarios') }}" class="btn-ghost" style="padding:10px 18px;">
+          Cancelar
+        </a>
+        <button type="submit" class="btn-primary" style="padding:12px 26px; font-size:16px; font-weight:700; display:inline-flex; align-items:center; gap:8px;">
+          💾 Salvar Configurações
+        </button>
+      </div>
+
+    </form>
+  </div>
+
+  <!-- Card de Teste de Disparo via Gmail API -->
+  <div class="card" style="padding:22px; border-radius:14px; background:var(--card);">
+    <h3 class="font-serif" style="margin:0 0 8px 0; color:var(--primary); font-size:17px; font-weight:700;">
+      🧪 Testar Envio de Relatório via Gmail API
+    </h3>
+    <p class="font-crimson" style="margin:0 0 16px 0; font-size:14.5px; color:var(--muted); font-style:italic;">
+      Envie um e-mail de teste com relatório anexo para validar se a conexão com o Google está autorizada.
+    </p>
+
+    <form method="post" action="{{ url_for('configuracoes_email_testar') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <input type="email" name="email_teste" value="{{ g.user.email if g.get('user') and g.user.email else '' }}" class="input-vintage" style="flex:1; min-width:240px; font-size:14.5px;" placeholder="seu-email@gmail.com" required>
+      <button type="submit" class="btn-secondary" style="padding:10px 18px; font-size:15px; font-weight:700; display:inline-flex; align-items:center; gap:6px;">
+        🚀 Disparar E-mail de Teste
+      </button>
+    </form>
+  </div>
+
+</div>
+
+<script>
+function copiarUriRedirecionamento() {
+  const txt = document.getElementById('redirectUriTxt').innerText.trim();
+  navigator.clipboard.writeText(txt).then(() => {
+    alert('URI copiada para a área de transferência:\n' + txt);
+  }).catch(() => {
+    prompt('Copie o endereço abaixo:', txt);
+  });
+}
+
+function toggleSenhaSecret() {
+  const inp = document.getElementById('clientSecretInput');
+  inp.type = (inp.type === 'password') ? 'text' : 'password';
+}
+</script>
+{% endblock %}

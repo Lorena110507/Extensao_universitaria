@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% set is_edit = (agendamento is defined and agendamento.id) %}
+{% set titulo_pagina = "Editar Programação" if is_edit else "Nova Programação Regular" %}
+{% set subtitulo = "Agendamento Automático de Relatórios por E-mail" %}
+{% set aba_email = "agendamentos" %}
+{% block conteudo %}
+
+{% include "email_subnav.html" %}
+
+<div style="margin-bottom:18px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+    <div>
+      <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">
+        {{ "✏️ Editar Programação de Envio" if is_edit else "➕ Criar Nova Programação de Envio" }}
+      </h3>
+      <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+        Configure a frequência e os destinatários para o envio periódico automático
+      </p>
+    </div>
+    <a href="{{ url_for('agendamentos_email_listar') }}" class="btn-ghost" style="padding:6px 12px; font-size:15px; min-height:34px;">
+      ← Voltar aos Agendamentos
+    </a>
+  </div>
+</div>
+
+<div class="card" style="padding:22px; max-width:680px;">
+  <form method="post">
+    
+    <!-- 1. Título do Agendamento -->
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+        Nome / Título da Programação <span style="color:var(--danger);">*</span>
+      </label>
+      <input name="titulo" required class="input-vintage"
+             value="{{ agendamento.titulo if is_edit else '' }}"
+             placeholder="Ex: Balanço Semanal da Diretoria, Relatório Mensal de Estoque">
+    </div>
+
+    <!-- 2. Tipo de Relatório -->
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+        Tipo de Relatório Anexo <span style="color:var(--danger);">*</span>
+      </label>
+      <select name="tipo_relatorio" required class="input-vintage">
+        {% set sel_tipo = agendamento.tipo_relatorio if is_edit else 'financeiro_pdf' %}
+        <option value="financeiro_pdf" {% if sel_tipo == 'financeiro_pdf' %}selected{% endif %}>📄 Relatório Financeiro e Balanço (PDF)</option>
+        <option value="completo_xlsx" {% if sel_tipo == 'completo_xlsx' %}selected{% endif %}>📊 Planilha Completa do Sistema (Excel .xlsx)</option>
+        <option value="ambos" {% if sel_tipo == 'ambos' %}selected{% endif %}>📦 Pacote Completo (PDF Financeiro + Excel .xlsx)</option>
+        <option value="estoque_baixo_pdf" {% if sel_tipo == 'estoque_baixo_pdf' %}selected{% endif %}>⚠️ Alerta de Estoque Crítico &amp; Reposição (PDF)</option>
+      </select>
+    </div>
+
+    <!-- 3. Periodicidade e Horário -->
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:14px; margin-bottom:16px;">
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+          Frequência de Envio <span style="color:var(--danger);">*</span>
+        </label>
+        {% set sel_freq = agendamento.frequencia if is_edit else 'semanal' %}
+        <select name="frequencia" id="select-frequencia" required class="input-vintage" onchange="atualizarCamposFrequencia()">
+          <option value="diario" {% if sel_freq == 'diario' %}selected{% endif %}>📅 Diário (Todos os dias)</option>
+          <option value="semanal" {% if sel_freq == 'semanal' %}selected{% endif %}>🗓️ Semanal (Um dia por semana)</option>
+          <option value="mensal" {% if sel_freq == 'mensal' %}selected{% endif %}>📆 Mensal (Todo mês no dia escolhido)</option>
+        </select>
+      </div>
+
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+          Horário do Disparo <span style="color:var(--danger);">*</span>
+        </label>
+        <input name="hora_envio" type="time" required class="input-vintage"
+               value="{{ agendamento.hora_envio if is_edit else '08:00' }}">
+      </div>
+    </div>
+
+    <!-- Campos Dinâmicos: Dia da Semana ou Dia do Mês -->
+    <div id="campo-dia-semana" style="margin-bottom:16px;">
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+        Dia da Semana
+      </label>
+      {% set sel_dia_sem = agendamento.dia_semana|int if (is_edit and agendamento.dia_semana is not none) else 0 %}
+      <select name="dia_semana" class="input-vintage">
+        <option value="0" {% if sel_dia_sem == 0 %}selected{% endif %}>Segunda-feira</option>
+        <option value="1" {% if sel_dia_sem == 1 %}selected{% endif %}>Terça-feira</option>
+        <option value="2" {% if sel_dia_sem == 2 %}selected{% endif %}>Quarta-feira</option>
+        <option value="3" {% if sel_dia_sem == 3 %}selected{% endif %}>Quinta-feira</option>
+        <option value="4" {% if sel_dia_sem == 4 %}selected{% endif %}>Sexta-feira</option>
+        <option value="5" {% if sel_dia_sem == 5 %}selected{% endif %}>Sábado</option>
+        <option value="6" {% if sel_dia_sem == 6 %}selected{% endif %}>Domingo</option>
+      </select>
+    </div>
+
+    <div id="campo-dia-mes" style="margin-bottom:16px; display:none;">
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+        Dia do Mês (1 a 28)
+      </label>
+      <input name="dia_mes" type="number" min="1" max="28" class="input-vintage"
+             value="{{ agendamento.dia_mes if is_edit else '1' }}">
+      <span style="font-size:13px; color:var(--muted);">Para garantir execução em todos os meses (incluindo fevereiro), escolha entre 1 e 28.</span>
+    </div>
+
+    <!-- 4. Destinatários -->
+    <div style="margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+        <label style="font-weight:700; color:var(--primary); font-size:15px; margin:0;">
+          Destinatários Cadastrados
+        </label>
+        <div style="display:flex; gap:6px;">
+          <button type="button" class="btn-ghost" onclick="selecionarTodosAgend(true)" style="padding:2px 8px; font-size:12px; min-height:24px;">Todos</button>
+          <button type="button" class="btn-ghost" onclick="selecionarTodosAgend(false)" style="padding:2px 8px; font-size:12px; min-height:24px;">Nenhum</button>
+        </div>
+      </div>
+
+      {% set usuarios_com_email = usuarios|selectattr('email')|list %}
+      {% if usuarios_com_email %}
+        <div style="max-height:160px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:8px; background:var(--card-bg); display:flex; flex-direction:column; gap:6px; margin-bottom:10px;">
+          {% set dest_salvos = (agendamento.destinatarios or '').split(',') if is_edit else [] %}
+          {% for u in usuarios_com_email %}
+            <label style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:14px;">
+              <input type="checkbox" name="destinatarios_usuarios" value="{{ u.email }}"
+                     {% if is_edit and (u.email in agendamento.destinatarios) %}checked{% endif %}
+                     class="check-agend-dest" style="accent-color:var(--accent); width:16px; height:16px;">
+              <span style="font-weight:600; color:var(--text);">{{ u.nome or u.username }}</span>
+              <span style="color:var(--primary); font-size:13px;">({{ u.email }})</span>
+            </label>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:14px; margin-bottom:4px;">
+        Outros E-mails Destinatários (separados por vírgula)
+      </label>
+      <input name="destinatarios_extras" type="text" class="input-vintage"
+             value="{{ agendamento.destinatarios_extras if is_edit else '' }}"
+             placeholder="Ex: gestao@atelie.com, conselho@exemplo.com">
+    </div>
+
+    <!-- 5. Assunto & Mensagem Personalizada -->
+    <div style="margin-bottom:14px;">
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+        Assunto do E-mail <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+      </label>
+      <input name="assunto" type="text" class="input-vintage"
+             value="{{ agendamento.assunto if is_edit else '' }}"
+             placeholder="Ex: Balanço Semanal Automático — Ateliê Haiti">
+    </div>
+
+    <div style="margin-bottom:18px;">
+      <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+        Mensagem de Acompanhamento <span style="font-weight:400; color:var(--muted);">(opcional)</span>
+      </label>
+      <textarea name="mensagem" class="input-vintage" rows="2" placeholder="Nota personalizada incluída no corpo do e-mail periódico...">{{ agendamento.mensagem if is_edit else '' }}</textarea>
+    </div>
+
+    <!-- 6. Status Ativo -->
+    <div style="margin-bottom:22px; padding:10px 12px; background:rgba(124,61,18,0.04); border-radius:8px; border:1px solid var(--border);">
+      <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-weight:700; color:var(--primary); font-size:15px;">
+        <input type="checkbox" name="ativo" value="1" {% if (not is_edit) or agendamento.ativo %}checked{% endif %}
+               style="width:18px; height:18px; accent-color:var(--accent);">
+        Programação Ativa (Disparos automáticos habilitados)
+      </label>
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button type="submit" class="btn-primary" style="min-width:200px; padding:12px 24px;">
+        {{ "💾 Salvar Alterações" if is_edit else "✅ Criar Programação" }}
+      </button>
+      <a href="{{ url_for('agendamentos_email_listar') }}" class="btn-ghost" style="padding:12px 20px;">
+        Cancelar
+      </a>
+    </div>
+  </form>
+</div>
+
+<script>
+function atualizarCamposFrequencia() {
+  const freq = document.getElementById('select-frequencia').value;
+  const campoSemana = document.getElementById('campo-dia-semana');
+  const campoMes = document.getElementById('campo-dia-mes');
+  
+  if (freq === 'semanal') {
+    campoSemana.style.display = 'block';
+    campoMes.style.display = 'none';
+  } else if (freq === 'mensal') {
+    campoSemana.style.display = 'none';
+    campoMes.style.display = 'block';
+  } else {
+    campoSemana.style.display = 'none';
+    campoMes.style.display = 'none';
+  }
+}
+
+function selecionarTodosAgend(marcar) {
+  document.querySelectorAll('.check-agend-dest').forEach(cb => cb.checked = marcar);
+}
+
+document.addEventListener('DOMContentLoaded', atualizarCamposFrequencia);
+</script>
+
+{% endblock %}

@@ -1,0 +1,39 @@
+<!-- Sub-navegação da Central de E-mails (Redirecionamento Interno) -->
+<div class="card email-subnav-card" style="padding: 16px 20px; margin-bottom: 22px; border-radius: 14px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(0,0,0,0.04);">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+    
+    <!-- Título & Subtítulo da Central de E-mails -->
+    <div style="display: flex; align-items: center; gap: 12px; min-width: 240px;">
+      <div style="width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, rgba(124,61,18,0.12), rgba(124,61,18,0.04)); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 22px; border: 1px solid rgba(124,61,18,0.15);">
+        ✉️
+      </div>
+      <div>
+        <h2 class="font-serif" style="margin: 0; font-size: 21px; color: var(--primary); font-weight: 800; line-height: 1.2;">
+          Central de E-mails
+        </h2>
+        <p class="font-crimson" style="margin: 2px 0 0 0; font-size: 14px; color: var(--muted); font-style: italic;">
+          Disparos manuais, agendamentos automáticos, histórico de envios e conexão Gmail
+        </p>
+      </div>
+    </div>
+
+    <!-- Abas Internas da Página (Redirecionamento na Página) -->
+    <div style="display: flex; gap: 6px; flex-wrap: wrap; background: rgba(0,0,0,0.03); padding: 5px; border-radius: 12px; border: 1px solid var(--border);">
+      <a href="{{ url_for('relatorios_enviar_email') }}" class="btn-ghost subtab-link {{ 'active-subtab' if aba_email == 'enviar' }}" style="padding: 8px 16px; font-size: 14px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; transition: all 0.2s ease;">
+        ✉️ Enviar E-mail
+      </a>
+      <a href="{{ url_for('agendamentos_email_listar') }}" class="btn-ghost subtab-link {{ 'active-subtab' if aba_email == 'agendamentos' }}" style="padding: 8px 16px; font-size: 14px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; transition: all 0.2s ease;">
+        ⏰ Envios Regulares
+      </a>
+      <a href="{{ url_for('historico_emails') }}" class="btn-ghost subtab-link {{ 'active-subtab' if aba_email == 'historico' }}" style="padding: 8px 16px; font-size: 14px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; transition: all 0.2s ease;">
+        📜 Histórico
+      </a>
+      {% if is_user_developer(g.user) %}
+      <a href="{{ url_for('developer_dashboard', tab='sso') }}" class="btn-ghost subtab-link" style="padding: 8px 16px; font-size: 14px; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--primary); background: rgba(124,61,18,0.08);">
+        🛠️ Chaves SSO no Developer Hub
+      </a>
+      {% endif %}
+    </div>
+
+  </div>
+</div>

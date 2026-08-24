@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% set titulo_pagina = relatorio.titulo %}
+{% block conteudo %}
+
+<!-- Header & Ações -->
+<div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
+  <div>
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+      <a href="{{ url_for('alertas') }}" class="btn-ghost" style="padding:4px 8px; font-size:14px;">← Voltar</a>
+      <span class="badge" style="font-size:13px; text-transform:uppercase; background:rgba(124,61,18,0.08); color:var(--primary); padding:3px 8px; border-radius:4px;">
+        {{ relatorio.tipo|capitalize }}
+      </span>
+      <span class="badge" style="font-size:13px; background:rgba(200,130,66,0.12); color:var(--accent); padding:3px 8px; border-radius:4px;">
+        Gráfico: {{ relatorio.tipo_grafico|capitalize }}
+      </span>
+    </div>
+    <h2 class="font-serif" style="margin:0; font-size:22px; color:var(--primary); font-weight:800;">
+      {{ relatorio.titulo }}
+    </h2>
+    <p class="font-crimson" style="margin:2px 0 0 0; font-size:15px; color:var(--muted); font-style:italic;">
+      Criado por <strong>{{ relatorio.criado_por or 'Sistema' }}</strong> · Atualizado em {{ relatorio.updated_at[:10] if relatorio.updated_at else '-' }}
+    </p>
+  </div>
+
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    {% if has_permission('relatorios', 'update') %}
+    <a href="{{ url_for('relatorio_editar', relatorio_id=relatorio.id) }}" class="btn-secondary" style="padding:7px 12px; font-size:15px; min-height:34px; display:inline-flex; align-items:center; gap:4px;">
+      ✏️ Editar
+    </a>
+    {% endif %}
+    {% if has_permission('relatorios', 'delete') %}
+    <form method="post" action="{{ url_for('relatorio_excluir', relatorio_id=relatorio.id) }}" onsubmit="return confirm('Tem certeza que deseja excluir este relatório?');" style="display:inline;">
+      <button type="submit" class="btn-ghost" style="padding:7px 12px; font-size:15px; min-height:34px; color:var(--danger);" title="Excluir">
+        🗑️ Excluir
+      </button>
+    </form>
+    {% endif %}
+    <a href="{{ url_for('exportar_financeiro_pdf') }}" class="btn-primary" style="padding:7px 12px; font-size:15px; min-height:34px; display:inline-flex; align-items:center; gap:4px;">
+      📄 PDF
+    </a>
+    <a href="{{ url_for('exportar_tudo_xlsx') }}" class="btn-secondary" style="padding:7px 12px; font-size:15px; min-height:34px; display:inline-flex; align-items:center; gap:4px;">
+      📊 Excel
+    </a>
+  </div>
+</div>
+
+<!-- Observações do Relatório -->
+{% if relatorio.observacoes %}
+<div class="card" style="padding:12px 16px; margin-bottom:18px; background:rgba(124,61,18,0.03); border-left:4px solid var(--primary);">
+  <p class="font-serif" style="margin:0 0 2px 0; font-size:14px; font-weight:700; color:var(--primary);">📌 NOTAS &amp; DIRETRIZES DO GESTOR</p>
+  <p class="font-crimson" style="margin:0; font-size:15px; color:var(--text); line-height:1.4;">
+    {{ relatorio.observacoes }}
+  </p>
+</div>
+{% endif %}
+
+<!-- KPIs Resumo -->
+{% if dados.kpis %}
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:22px;">
+  {% for k in dados.kpis %}
+  <div class="card" style="padding:14px; text-align:center; border-top:3px solid {{ k.cor }};">
+    <p class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic; margin:0;">{{ k.titulo }}</p>
+    <p class="font-serif" style="font-size:22px; font-weight:800; color:{{ k.cor }}; margin:4px 0 2px 0;">{{ k.valor }}</p>
+    <p class="font-crimson" style="font-size:13px; color:var(--muted); margin:0;">{{ k.sub }}</p>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Gráfico Dedicado -->
+<div class="card" style="padding:18px; margin-bottom:24px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+    <p class="font-serif" style="font-size:17px; font-weight:700; color:var(--primary); margin:0;">
+      📊 Visualização Gráfica Dinâmica
+    </p>
+    <span class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic;">
+      Formato: {{ dados.tipo_grafico|capitalize }} · Atualizado em tempo real
+    </span>
+  </div>
+  <div style="position:relative; height:320px; width:100%;">
+    <canvas id="customReportChart"></canvas>
+  </div>
+</div>
+
+<div class="ornament" style="margin:20px 0;">· · ·</div>
+
+<!-- Tabela Analítica de Dados Filtrados -->
+<div class="card" style="padding:18px;">
+  <p class="font-serif" style="font-size:17px; font-weight:700; color:var(--primary); margin:0 0 12px 0;">
+    📋 Registros Analíticos Filtrados
+  </p>
+
+  {% if not dados.tabela.linhas %}
+  <p class="font-crimson" style="color:var(--muted); font-style:italic; text-align:center; padding:16px 0;">
+    Nenhum registro encontrado para os filtros selecionados neste relatório.
+  </p>
+  {% else %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%; border-collapse:collapse; text-align:left;">
+      <thead>
+        <tr style="background:var(--primary); color:white;">
+          {% for col in dados.tabela.colunas %}
+          <th style="padding:8px 12px; font-size:14px; font-family:'Segoe UI', sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; border:1px solid var(--border);">
+            {{ col }}
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in dados.tabela.linhas %}
+        <tr style="background:{{ 'rgba(124,61,18,0.02)' if loop.index is odd else '#ffffff' }};">
+          {% for cell in row %}
+          <td style="padding:8px 12px; font-size:15px; font-family:'Crimson Text', serif; border:1px solid var(--border); color:var(--text);">
+            {{ cell }}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Script Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    try {
+      const payload = {{ chart_payload|safe }};
+      const chartType = "{{ dados.tipo_grafico }}";
+      const ctx = document.getElementById('customReportChart').getContext('2d');
+
+      const isPieOrDoughnut = ['doughnut', 'pie', 'polarArea'].includes(chartType);
+
+      const options = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: isPieOrDoughnut ? 'bottom' : 'top',
+            labels: {
+              font: { family: "'Segoe UI', sans-serif", size: 12 },
+              color: '#2C1810'
+            }
+          }
+        }
+      };
+
+      if (!isPieOrDoughnut) {
+        options.scales = {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              font: { family: "'Segoe UI', sans-serif", size: 11 }
+            }
+          },
+          x: {
+            ticks: {
+              font: { family: "'Segoe UI', sans-serif", size: 11 }
+            }
+          }
+        };
+      }
+
+      new Chart(ctx, {
+        type: chartType,
+        data: payload,
+        options: options
+      });
+    } catch (e) {
+      console.error("Erro ao inicializar gráfico customizado:", e);
+    }
+  });
+</script>
+
+{% endblock %}

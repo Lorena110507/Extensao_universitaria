@@ -1,0 +1,540 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Developer Hub" %}
+{% set subtitulo = "Painel de Engenharia & Configurações de Infraestrutura" %}
+{% block conteudo %}
+
+<!-- Cabeçalho do Developer Hub -->
+<div class="card" style="padding: 22px 24px; margin-bottom: 24px; border-radius: 16px; background: linear-gradient(135deg, rgba(124,61,18,0.06), rgba(194,130,75,0.03)); border: 1px solid var(--border); box-shadow: 0 6px 20px rgba(0,0,0,0.04);">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <div style="width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(135deg, #7C3D12, #5c2d0e); color: #fde9c2; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 4px 12px rgba(92,45,14,0.25);">
+        🛠️
+      </div>
+      <div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <h2 class="font-serif" style="margin: 0; font-size: 24px; color: var(--primary); font-weight: 800; line-height: 1.2;">
+            Developer Hub &amp; Infra
+          </h2>
+          <span class="badge" style="background: #2C1810; color: #fde9c2; font-size: 13px; font-weight: 800; padding: 3px 10px; border-radius: 12px; letter-spacing: 0.5px;">
+            🔒 ACESSO EXCLUSIVO DEV
+          </span>
+        </div>
+        <p class="font-crimson" style="margin: 4px 0 0 0; font-size: 15px; color: var(--muted); font-style: italic;">
+          Centralização de segredos de API, credenciais OAuth2, IA local, banco SQLite, auditoria e diagnósticos
+        </p>
+      </div>
+    </div>
+
+    <!-- Indicadores Rápidos de Status -->
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <div style="background: var(--card); border: 1px solid var(--border); padding: 6px 12px; border-radius: 10px; font-size: 13.5px; display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 14px;">🧠</span>
+        <span style="color: var(--muted);">IA Ollama:</span>
+        {% if ollama_info.online %}
+          <span style="color: var(--success); font-weight: 700;">🟢 Online</span>
+        {% elif ollama_info.emulate_if_offline %}
+          <span style="color: #d97706; font-weight: 700;">🟡 Emulada</span>
+        {% else %}
+          <span style="color: var(--danger); font-weight: 700;">🔴 Offline</span>
+        {% endif %}
+      </div>
+
+      <div style="background: var(--card); border: 1px solid var(--border); padding: 6px 12px; border-radius: 10px; font-size: 13.5px; display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 14px;">🗄️</span>
+        <span style="color: var(--muted);">SQLite:</span>
+        <span style="font-weight: 700; color: var(--primary);">{{ db_stats.size_mb }} MB</span>
+      </div>
+
+      <div style="background: var(--card); border: 1px solid var(--border); padding: 6px 12px; border-radius: 10px; font-size: 13.5px; display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 14px;">⏰</span>
+        <span style="color: var(--muted);">Agendador:</span>
+        <span style="font-weight: 700; color: var(--success);">Ativo</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barra de Navegação Interna do Developer Hub -->
+  <div style="display: flex; gap: 6px; flex-wrap: wrap; background: rgba(0,0,0,0.03); padding: 6px; border-radius: 12px; border: 1px solid var(--border); margin-top: 18px;">
+    <button type="button" onclick="switchDevTab('sso')" id="tabbtn_sso" class="btn-ghost devtab-btn {{ 'active-subtab' if aba_ativa == 'sso' }}" style="padding: 8px 16px; font-size: 14.5px; border-radius: 8px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+      🔑 SSO &amp; Google Cloud (Gmail API)
+    </button>
+    <button type="button" onclick="switchDevTab('ollama')" id="tabbtn_ollama" class="btn-ghost devtab-btn {{ 'active-subtab' if aba_ativa == 'ollama' }}" style="padding: 8px 16px; font-size: 14.5px; border-radius: 8px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+      🧠 Ollama IA &amp; Debugger
+    </button>
+    <button type="button" onclick="switchDevTab('database')" id="tabbtn_database" class="btn-ghost devtab-btn {{ 'active-subtab' if aba_ativa == 'database' }}" style="padding: 8px 16px; font-size: 14.5px; border-radius: 8px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+      🗄️ Banco de Dados &amp; Backups
+    </button>
+    <button type="button" onclick="switchDevTab('audits')" id="tabbtn_audits" class="btn-ghost devtab-btn {{ 'active-subtab' if aba_ativa == 'audits' }}" style="padding: 8px 16px; font-size: 14.5px; border-radius: 8px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+      🛡️ Auditoria &amp; Segurança
+    </button>
+    <button type="button" onclick="switchDevTab('diagnostics')" id="tabbtn_diagnostics" class="btn-ghost devtab-btn {{ 'active-subtab' if aba_ativa == 'diagnostics' }}" style="padding: 8px 16px; font-size: 14.5px; border-radius: 8px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+      ⚙️ Diagnósticos do Sistema
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     ABA 1: SSO & GOOGLE CLOUD CREDENTIALS
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="tabpanel_sso" class="devtab-panel" style="display: {{ 'block' if aba_ativa == 'sso' else 'none' }};">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+    
+    <!-- Formulário de Credenciais OAuth2 -->
+    <div class="card" style="padding: 22px;">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+        <span style="font-size: 22px;">🔑</span>
+        <div>
+          <h3 class="font-serif" style="margin: 0; font-size: 19px; color: var(--primary); font-weight: 800;">
+            Credenciais Google OAuth 2.0 &amp; Gmail API
+          </h3>
+          <p class="font-crimson" style="margin: 2px 0 0 0; font-size: 14px; color: var(--muted); font-style: italic;">
+            Configuração de Client ID e Client Secret para autenticação e envio de e-mails
+          </p>
+        </div>
+      </div>
+
+      <form method="post" action="{{ url_for('developer_sso_salvar') }}">
+        <div style="margin-bottom: 14px;">
+          <label style="display: block; font-weight: 700; color: var(--primary); font-size: 14px; margin-bottom: 4px;">
+            Google Client ID
+          </label>
+          <div style="position: relative;">
+            <input name="google_client_id" id="dev_client_id" type="text" value="{{ config_sso.google_client_id or '' }}" class="input-vintage" placeholder="Ex: 123456789-abc.apps.googleusercontent.com" style="padding-right: 40px; font-family: monospace; font-size: 13.5px;">
+            <button type="button" onclick="copyToClipboard('dev_client_id')" title="Copiar Client ID" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 16px; opacity: 0.7;">📋</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display: block; font-weight: 700; color: var(--primary); font-size: 14px; margin-bottom: 4px;">
+            Google Client Secret (Chave Secreta)
+          </label>
+          <div style="position: relative;">
+            <input name="google_client_secret" id="dev_client_secret" type="password" value="{{ config_sso.google_client_secret or '' }}" class="input-vintage" placeholder="GOCSPX-..." style="padding-right: 75px; font-family: monospace; font-size: 13.5px;">
+            <div style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; gap: 4px;">
+              <button type="button" onclick="togglePasswordVisibility('dev_client_secret')" title="Revelar/Ocultar Secret" style="background: none; border: none; cursor: pointer; font-size: 16px; opacity: 0.7;">👁️</button>
+              <button type="button" onclick="copyToClipboard('dev_client_secret')" title="Copiar Secret" style="background: none; border: none; cursor: pointer; font-size: 16px; opacity: 0.7;">📋</button>
+            </div>
+          </div>
+          <span style="font-size: 12.5px; color: var(--muted);">Armazenada com proteção no SQLite e mascarada por padrão.</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+          <label style="display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); cursor: pointer;">
+            <input type="checkbox" name="ativo" value="1" {% if config_sso.ativo %}checked{% endif %} style="width: 17px; height: 17px; accent-color: var(--accent);">
+            <span style="font-weight: 700; font-size: 14px; color: var(--text);">Habilitar SSO</span>
+          </label>
+
+          <label style="display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); cursor: pointer;">
+            <input type="checkbox" name="auto_cadastro" value="1" {% if config_sso.auto_cadastro %}checked{% endif %} style="width: 17px; height: 17px; accent-color: var(--accent);">
+            <span style="font-weight: 700; font-size: 14px; color: var(--text);">Auto-Cadastro</span>
+          </label>
+        </div>
+
+        <div style="margin-bottom: 18px;">
+          <label style="display: block; font-weight: 700; color: var(--primary); font-size: 14px; margin-bottom: 4px;">
+            Papel Padrão para Novos Cadastros via Google
+          </label>
+          <select name="papel_padrao" class="input-vintage">
+            {% for p in papeis %}
+              {% if p.name != 'Developer' %}
+                <option value="{{ p.name }}" {% if config_sso.papel_padrao == p.name %}selected{% endif %}>
+                  {{ p.name }} ({{ p.description or 'Sem descrição' }})
+                </option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+
+        <button type="submit" class="btn-primary" style="width: 100%; padding: 11px 16px; font-size: 15px;">
+          💾 Salvar Configurações SSO
+        </button>
+      </form>
+    </div>
+
+    <!-- Guia Google Cloud & Teste Gmail API -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <!-- Card Redirect URI -->
+      <div class="card" style="padding: 22px;">
+        <h4 class="font-serif" style="margin: 0 0 8px 0; color: var(--primary); font-size: 18px;">
+          🌐 URI de Redirecionamento Autorizada
+        </h4>
+        <p class="font-crimson" style="margin: 0 0 10px 0; font-size: 14px; color: var(--muted);">
+          Copie esta URL e adicione em <em>URIs de redirecionamento autorizados</em> no Google Cloud Console:
+        </p>
+        <div style="position: relative;">
+          <input type="text" id="dev_redirect_uri" value="{{ redirect_uri }}" readonly class="input-vintage" style="background: rgba(0,0,0,0.03); font-family: monospace; font-size: 13.5px; padding-right: 40px; cursor: text;">
+          <button type="button" onclick="copyToClipboard('dev_redirect_uri')" title="Copiar Redirect URI" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 16px; opacity: 0.7;">📋</button>
+        </div>
+      </div>
+
+      <!-- Teste de Disparo Técnico -->
+      <div class="card" style="padding: 22px;">
+        <h4 class="font-serif" style="margin: 0 0 6px 0; color: var(--primary); font-size: 18px;">
+          🧪 Teste de Conexão Gmail REST API
+        </h4>
+        <p class="font-crimson" style="margin: 0 0 12px 0; font-size: 14px; color: var(--muted);">
+          Executa um disparo de diagnóstico com relatório anexo para validar o token OAuth2 e permissões da API.
+        </p>
+        <form method="post" action="{{ url_for('developer_sso_testar_gmail') }}">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <input type="email" name="email_teste" required value="{{ g.user.get('email') or '' }}" placeholder="dev.teste@exemplo.com" class="input-vintage" style="flex: 1; min-width: 200px;">
+            <button type="submit" class="btn-secondary" style="white-space: nowrap; padding: 10px 16px;">
+              🚀 Executar Teste
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     ABA 2: OLLAMA IA & DEBUGGER
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="tabpanel_ollama" class="devtab-panel" style="display: {{ 'block' if aba_ativa == 'ollama' else 'none' }};">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+    
+    <!-- Configurações do Daemon Ollama -->
+    <div class="card" style="padding: 22px;">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+        <span style="font-size: 22px;">🧠</span>
+        <div>
+          <h3 class="font-serif" style="margin: 0; font-size: 19px; color: var(--primary); font-weight: 800;">
+            Motor Ollama IA Local (Ania)
+          </h3>
+          <p class="font-crimson" style="margin: 2px 0 0 0; font-size: 14px; color: var(--muted); font-style: italic;">
+            Conexão com o daemon local e seleção de modelo generativo
+          </p>
+        </div>
+      </div>
+
+      <form method="post" action="{{ url_for('developer_ollama_salvar') }}">
+        <div style="margin-bottom: 14px;">
+          <label style="display: block; font-weight: 700; color: var(--primary); font-size: 14px; margin-bottom: 4px;">
+            Ollama Host URL
+          </label>
+          <input name="ollama_host" type="text" value="{{ ollama_info.host or 'http://localhost:11434' }}" class="input-vintage" placeholder="http://localhost:11434" style="font-family: monospace; font-size: 13.5px;">
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display: block; font-weight: 700; color: var(--primary); font-size: 14px; margin-bottom: 4px;">
+            Modelo Principal
+          </label>
+          <input name="ollama_model" type="text" value="{{ ollama_info.model or 'qwen2.5:3b' }}" class="input-vintage" placeholder="qwen2.5:3b" style="font-family: monospace; font-size: 13.5px;">
+          {% if available_models %}
+            <span style="font-size: 12.5px; color: var(--muted); display: block; margin-top: 4px;">
+              Modelos detectados no daemon: <strong>{{ available_models|join(', ') }}</strong>
+            </span>
+          {% endif %}
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+          <div>
+            <label style="display: block; font-weight: 700; color: var(--primary); font-size: 13.5px; margin-bottom: 4px;">
+              Timeout (segundos)
+            </label>
+            <input name="ollama_timeout" type="number" step="1" value="{{ ollama_info.timeout or 25 }}" class="input-vintage">
+          </div>
+
+          <div style="display: flex; align-items: flex-end;">
+            <label style="display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); cursor: pointer; width: 100%;">
+              <input type="checkbox" name="ollama_emulate" value="1" {% if ollama_info.emulate_if_offline %}checked{% endif %} style="width: 17px; height: 17px; accent-color: var(--accent);">
+              <span style="font-weight: 700; font-size: 13px; color: var(--text);">Fallback Emulado</span>
+            </label>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-primary" style="width: 100%; padding: 11px 16px; font-size: 15px;">
+          💾 Salvar Configurações da IA
+        </button>
+      </form>
+    </div>
+
+    <!-- Terminal Interativo de Depuração de Tool Calls / Prompts -->
+    <div class="card" style="padding: 22px; display: flex; flex-direction: column;">
+      <h4 class="font-serif" style="margin: 0 0 6px 0; color: var(--primary); font-size: 18px;">
+        ⚡ Terminal de Teste de Tool Calling &amp; IA
+      </h4>
+      <p class="font-crimson" style="margin: 0 0 12px 0; font-size: 14px; color: var(--muted);">
+        Envie uma instrução para a IA para inspecionar a resposta JSON estruturada e o despacho de ações.
+      </p>
+
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <input type="text" id="dev_prompt_input" class="input-vintage" placeholder="Ex: Quanto couro temos em estoque? ou Cadastrar material Couro 5m" style="flex: 1;" onkeydown="if(event.key==='Enter') testarPromptDev()">
+        <button type="button" onclick="testarPromptDev()" id="btn_testar_prompt" class="btn-primary" style="white-space: nowrap; padding: 8px 16px;">
+          Enviar 🚀
+        </button>
+      </div>
+
+      <div id="dev_prompt_output" style="background: #1e1e1e; color: #d4d4d4; padding: 14px; border-radius: 10px; font-family: monospace; font-size: 12.5px; line-height: 1.45; overflow: auto; max-height: 320px; border: 1px solid #333; flex: 1; min-height: 180px;">
+        <span style="color: #6a9955;">// Aguardando prompt para teste...</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     ABA 3: BANCO DE DADOS & BACKUPS
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="tabpanel_database" class="devtab-panel" style="display: {{ 'block' if aba_ativa == 'database' else 'none' }};">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 20px;">
+    
+    <!-- Status do Banco de Dados -->
+    <div class="card" style="padding: 22px;">
+      <h3 class="font-serif" style="margin: 0 0 14px 0; font-size: 19px; color: var(--primary); font-weight: 800;">
+        🗄️ Informações do Armazenamento SQLite
+      </h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 8px 0; color: var(--muted); font-weight: 600;">Arquivo do Banco:</td>
+          <td style="padding: 8px 0; font-family: monospace; font-size: 13px; text-align: right;">{{ db_stats.path }}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 8px 0; color: var(--muted); font-weight: 600;">Tamanho no Disco:</td>
+          <td style="padding: 8px 0; font-weight: 700; color: var(--primary); text-align: right;">{{ db_stats.size_kb }} KB ({{ db_stats.size_mb }} MB)</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 8px 0; color: var(--muted); font-weight: 600;">Versão SQLite:</td>
+          <td style="padding: 8px 0; font-family: monospace; text-align: right;">{{ db_stats.sqlite_version }}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 8px 0; color: var(--muted); font-weight: 600;">Journal Mode:</td>
+          <td style="padding: 8px 0; font-weight: 700; color: var(--success); text-align: right;">{{ db_stats.journal_mode }}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: var(--muted); font-weight: 600;">Integridade (PRAGMA):</td>
+          <td style="padding: 8px 0; font-weight: 700; color: var(--success); text-align: right;">{{ db_stats.integrity }}</td>
+        </tr>
+      </table>
+
+      <div style="display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap;">
+        <a href="{{ url_for('developer_db_backup') }}" class="btn-primary" style="flex: 1; text-align: center; text-decoration: none; padding: 10px 14px; font-size: 14.5px;">
+          💾 Baixar Backup (.sqlite3)
+        </a>
+        <form method="post" action="{{ url_for('developer_db_otimizar') }}" style="flex: 1; margin: 0;">
+          <button type="submit" class="btn-secondary" style="width: 100%; padding: 10px 14px; font-size: 14.5px;">
+            🧹 Otimizar (VACUUM)
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Restauração de Backup -->
+    <div class="card" style="padding: 22px;">
+      <h3 class="font-serif" style="margin: 0 0 8px 0; font-size: 19px; color: var(--danger); font-weight: 800;">
+        📥 Restaurar Base a partir de Backup
+      </h3>
+      <p class="font-crimson" style="margin: 0 0 14px 0; font-size: 14px; color: var(--muted);">
+        Faça upload de um arquivo <code>.sqlite3</code> ou <code>.db</code>. Uma cópia de segurança do banco atual será gerada automaticamente antes da substituição.
+      </p>
+
+      <form method="post" action="{{ url_for('developer_db_restaurar') }}" enctype="multipart/form-data" onsubmit="return confirm('ATENÇÃO: A restauração substituirá todos os dados atuais pela versão do backup enviado. Deseja prosseguir?');">
+        <div style="margin-bottom: 16px;">
+          <input type="file" name="backup_file" accept=".sqlite3,.db,.sqlite" required class="input-vintage" style="padding: 8px;">
+        </div>
+        <button type="submit" class="btn-ghost" style="width: 100%; color: var(--danger); border-color: var(--danger-lt); font-weight: 700; padding: 10px 16px;">
+          ⚠️ Confirmar Restauração de Banco
+        </button>
+      </form>
+    </div>
+
+  </div>
+
+  <!-- Tabela de Estatísticas por Tabela -->
+  <div class="card" style="padding: 22px;">
+    <h4 class="font-serif" style="margin: 0 0 14px 0; color: var(--primary); font-size: 18px;">
+      📊 Registros por Tabela do Sistema
+    </h4>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+      {% for tb in db_stats.tables %}
+        <div style="background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px;">
+          <div style="font-size: 12.5px; color: var(--muted); font-weight: 600;">{{ tb.desc }}</div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 4px;">
+            <code style="font-size: 13.5px; color: var(--primary);">{{ tb.name }}</code>
+            <span style="font-size: 18px; font-weight: 800; color: var(--text);">{{ tb.count }}</span>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     ABA 4: AUDITORIA & SEGURANÇA
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="tabpanel_audits" class="devtab-panel" style="display: {{ 'block' if aba_ativa == 'audits' else 'none' }};">
+  <div class="card" style="padding: 22px; margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+      <div>
+        <h3 class="font-serif" style="margin: 0; font-size: 19px; color: var(--primary); font-weight: 800;">
+          🛡️ Trilha de Auditoria &amp; Eventos Sensíveis
+        </h3>
+        <p class="font-crimson" style="margin: 2px 0 0 0; font-size: 14px; color: var(--muted); font-style: italic;">
+          Registro detalhado de logins SSO, alterações de perfis, mudanças de papéis e segurança
+        </p>
+      </div>
+
+      <form method="post" action="{{ url_for('developer_seguranca_invalidar_sessoes') }}" onsubmit="return confirm('Deseja desconectar todas as outras sessões ativas no sistema?');" style="margin: 0;">
+        <button type="submit" class="btn-ghost" style="color: var(--danger); border-color: var(--danger-lt); font-size: 14px; padding: 7px 14px;">
+          🔒 Desconectar Todas as Sessões Ativas
+        </button>
+      </form>
+    </div>
+
+    <!-- Tabela de Auditoria -->
+    <div style="overflow-x: auto;">
+      <table style="width: 100%; border-collapse: collapse; min-width: 600px; font-size: 13.5px;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--border); background: rgba(124,61,18,0.04);">
+            <th style="text-align: left; padding: 8px 10px; color: var(--primary);">Data / Hora</th>
+            <th style="text-align: left; padding: 8px 10px; color: var(--primary);">Ator (Usuário)</th>
+            <th style="text-align: left; padding: 8px 10px; color: var(--primary);">Ação</th>
+            <th style="text-align: left; padding: 8px 10px; color: var(--primary);">Detalhes Técnicos</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in audits %}
+            <tr style="border-bottom: 1px solid var(--border);">
+              <td style="padding: 8px 10px; color: var(--muted); white-space: nowrap;">
+                {{ a.created_at[:19]|replace('T', ' ') }}
+              </td>
+              <td style="padding: 8px 10px; font-weight: 700; color: var(--text);">
+                {{ a.actor_username or 'Sistema' }}
+              </td>
+              <td style="padding: 8px 10px;">
+                <span class="badge" style="background: rgba(124,61,18,0.1); color: var(--primary); font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 8px;">
+                  {{ a.action }}
+                </span>
+              </td>
+              <td style="padding: 8px 10px; font-family: monospace; font-size: 12px; color: var(--text); word-break: break-all;">
+                {{ a.details or '-' }}
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="4" style="padding: 20px; text-align: center; color: var(--muted);">
+                Nenhum registro de auditoria encontrado.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     ABA 5: DIAGNÓSTICOS DO SISTEMA & RUNTIME
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="tabpanel_diagnostics" class="devtab-panel" style="display: {{ 'block' if aba_ativa == 'diagnostics' else 'none' }};">
+  <div class="card" style="padding: 22px;">
+    <h3 class="font-serif" style="margin: 0 0 14px 0; font-size: 19px; color: var(--primary); font-weight: 800;">
+      ⚙️ Diagnósticos do Runtime e Servidor
+    </h3>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+      <div style="background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+        <div style="font-size: 13px; color: var(--muted); font-weight: 600;">Linguagem &amp; Framework</div>
+        <div style="margin-top: 6px; font-size: 15px; font-weight: 700; color: var(--text);">
+          🐍 Python {{ diagnostics.python_version }} · Flask {{ diagnostics.flask_version }}
+        </div>
+      </div>
+
+      <div style="background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+        <div style="font-size: 13px; color: var(--muted); font-weight: 600;">Sistema Operacional</div>
+        <div style="margin-top: 6px; font-size: 15px; font-weight: 700; color: var(--text);">
+          💻 {{ diagnostics.system }} ({{ diagnostics.platform }})
+        </div>
+      </div>
+
+      <div style="background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+        <div style="font-size: 13px; color: var(--muted); font-weight: 600;">Fuso Horário &amp; Início</div>
+        <div style="margin-top: 6px; font-size: 15px; font-weight: 700; color: var(--text);">
+          🕒 {{ diagnostics.timezone }}<br>
+          <span style="font-size: 13px; font-weight: 400; color: var(--muted);">Servidor online desde: {{ diagnostics.server_start }}</span>
+        </div>
+      </div>
+
+      <div style="background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+        <div style="font-size: 13px; color: var(--muted); font-weight: 600;">Engine de Persistência</div>
+        <div style="margin-top: 6px; font-size: 15px; font-weight: 700; color: var(--success);">
+          ⚡ {{ diagnostics.db_mode }}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function switchDevTab(tabId) {
+    document.querySelectorAll('.devtab-panel').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.devtab-btn').forEach(el => el.classList.remove('active-subtab'));
+
+    const panel = document.getElementById('tabpanel_' + tabId);
+    const btn = document.getElementById('tabbtn_' + tabId);
+    if (panel) panel.style.display = 'block';
+    if (btn) btn.classList.add('active-subtab');
+
+    // Atualiza a URL sem recarregar a página
+    const url = new URL(window.location);
+    url.searchParams.set('tab', tabId);
+    window.history.replaceState({}, '', url);
+  }
+
+  function togglePasswordVisibility(inputId) {
+    const input = document.getElementById(inputId);
+    if (input) {
+      input.type = (input.type === 'password') ? 'text' : 'password';
+    }
+  }
+
+  function copyToClipboard(inputId) {
+    const input = document.getElementById(inputId);
+    if (input) {
+      navigator.clipboard.writeText(input.value).then(() => {
+        alert('Copiado para a área de transferência!');
+      }).catch(() => {
+        input.select();
+        document.execCommand('copy');
+        alert('Copiado para a área de transferência!');
+      });
+    }
+  }
+
+  function testarPromptDev() {
+    const input = document.getElementById('dev_prompt_input');
+    const out = document.getElementById('dev_prompt_output');
+    const btn = document.getElementById('btn_testar_prompt');
+    const prompt = input ? input.value.trim() : '';
+
+    if (!prompt) {
+      alert('Digite uma mensagem ou prompt para testar.');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerText = 'Processando... ⏳';
+    out.innerHTML = '<span style="color: #4ec9b0;">[Executando teste via Ollama / Ania Engine...]</span>';
+
+    fetch('{{ url_for("developer_ollama_testar_prompt") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: prompt, mode: 'ia' })
+    })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.innerText = 'Enviar 🚀';
+      out.innerHTML = '<pre style="margin:0; color:#9cdcfe;">' + JSON.stringify(data, null, 2) + '</pre>';
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.innerText = 'Enviar 🚀';
+      out.innerHTML = '<span style="color: #f48771;">Erro ao executar: ' + err + '</span>';
+    });
+  }
+</script>
+
+{% endblock %}

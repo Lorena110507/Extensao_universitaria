@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% set titulo_pagina = "Novo Papel" if is_novo else ("Editar " ~ role.name) %}
+{% set subtitulo = "Configuração de Níveis de Acesso por Aba" %}
+{% block conteudo %}
+
+<div style="margin-bottom:18px;">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <div>
+      <h3 class="font-serif" style="font-size:22px; color:var(--primary); margin:0;">
+        {% if is_novo %}➕ Criar Novo Papel{% else %}✏️ Configurar Permissões: {{ role.name }}{% endif %}
+      </h3>
+      <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+        Selecione exatamente quais abas este papel poderá visualizar e as ações permitidas
+      </p>
+    </div>
+    <a href="{{ url_for('roles') }}" class="btn-ghost" style="padding:6px 12px; font-size:15px; min-height:34px;">
+      ← Voltar aos Papéis
+    </a>
+  </div>
+</div>
+
+<form method="post">
+  <!-- Dados Gerais do Papel -->
+  <div class="card" style="padding:18px; margin-bottom:18px;">
+    <h4 class="font-serif" style="margin:0 0 12px 0; color:var(--primary);">Informações do Papel</h4>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px;">
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+          Nome do Papel <span style="color:var(--danger);">*</span>
+        </label>
+        <input name="name" value="{{ role.name if role else '' }}" required class="input-vintage"
+               placeholder="Ex: Almoxarife, Gerente de Vendas"
+               {% if role and role.name in ('Admin', 'Developer') %}readonly style="background:rgba(0,0,0,0.03); cursor:not-allowed;"{% endif %}>
+        {% if role and role.name in ('Admin', 'Developer') %}
+        <span style="font-size:13px; color:var(--muted);">O nome dos papéis canônicos do sistema não pode ser alterado.</span>
+        {% endif %}
+      </div>
+
+      <div>
+        <label style="display:block; font-weight:700; color:var(--primary); font-size:15px; margin-bottom:4px;">
+          Descrição / Finalidade
+        </label>
+        <input name="description" value="{{ role.description if role else '' }}" class="input-vintage"
+               placeholder="Ex: Responsável por conferir estoque e registrar baixas">
+      </div>
+    </div>
+  </div>
+
+  {% if role and role.name == 'Developer' %}
+  <div class="card" style="padding:16px; margin-bottom:18px; border-left:4px solid #2C1810; background:#fff9ee;">
+    <p style="margin:0; font-weight:700; color:var(--primary);">🛠️ Desenvolvedor do Sistema (Developer Hub)</p>
+    <p class="font-crimson" style="margin:4px 0 0 0; font-size:15px; color:var(--muted);">
+      O papel <strong>Developer</strong> possui acesso irrestrito a todas as abas de negócio e controle exclusivo das configurações técnicas avançadas (Developer Hub). Suas permissões são canônicas e ativas em todo o sistema.
+    </p>
+  </div>
+  {% elif role and role.name == 'Admin' %}
+  <div class="card" style="padding:16px; margin-bottom:18px; border-left:4px solid var(--primary); background:#fff9ee;">
+    <p style="margin:0; font-weight:700; color:var(--primary);">👑 Administrador do Sistema</p>
+    <p class="font-crimson" style="margin:4px 0 0 0; font-size:15px; color:var(--muted);">
+      O papel <strong>Admin</strong> possui acesso irrestrito e automático a todas as abas de negócio e operações (CRUD completo).
+    </p>
+  </div>
+  {% else %}
+
+  <!-- Matriz de Permissões por Aba -->
+  <div class="card" style="padding:18px; margin-bottom:18px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+      <div>
+        <h4 class="font-serif" style="margin:0; color:var(--primary);">Matriz de Acesso por Aba</h4>
+        <p class="font-crimson" style="font-size:15px; color:var(--muted); margin:2px 0 0 0; font-style:italic;">
+          Abas desmarcadas não aparecerão no menu de navegação do usuário.
+        </p>
+      </div>
+
+      <!-- Presets Globais Rápidos -->
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button type="button" class="btn-ghost" onclick="setAllPermissions('all')" style="padding:4px 8px; font-size:14px; min-height:30px;">
+          ⚡ Acesso Total
+        </button>
+        <button type="button" class="btn-ghost" onclick="setAllPermissions('read_only')" style="padding:4px 8px; font-size:14px; min-height:30px;">
+          👁️ Somente Leitura
+        </button>
+        <button type="button" class="btn-ghost" onclick="setAllPermissions('none')" style="padding:4px 8px; font-size:14px; min-height:30px; color:var(--danger);">
+          🚫 Desmarcar Tudo
+        </button>
+      </div>
+    </div>
+
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; min-width:540px;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--border); background:rgba(124,61,18,0.04);">
+            <th style="text-align:left; padding:10px 12px; font-size:15px; color:var(--primary);">Aba / Módulo</th>
+            <th style="text-align:center; padding:10px 6px; font-size:14px; color:var(--muted); width:130px;">Ações Rápidas</th>
+            <th style="text-align:center; padding:10px 6px; font-size:15px; color:var(--primary); width:70px;">
+              <span title="Permite cadastrar e criar novos registros">Criar (C)</span>
+            </th>
+            <th style="text-align:center; padding:10px 6px; font-size:15px; color:var(--primary); width:70px;">
+              <span title="Permite acessar a aba e visualizar listagens">Ver (R)</span>
+            </th>
+            <th style="text-align:center; padding:10px 6px; font-size:15px; color:var(--primary); width:70px;">
+              <span title="Permite modificar e atualizar registros existentes">Editar (U)</span>
+            </th>
+            <th style="text-align:center; padding:10px 6px; font-size:15px; color:var(--primary); width:70px;">
+              <span title="Permite deletar e excluir registros">Excluir (D)</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for tab in system_tabs %}
+          {% if tab.id != 'developer' or is_user_developer(g.user) %}
+          {% set p = role.permissions.get(tab.id, {}) if role else {} %}
+          <tr style="border-bottom:1px solid var(--border); transition:background .1s;" id="row_{{ tab.id }}" onmouseover="this.style.background='rgba(253,233,194,0.15)'" onmouseout="this.style.background='transparent'">
+            <td style="padding:12px 12px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:20px;">{{ tab.emoji }}</span>
+                <div>
+                  <div style="font-weight:700; font-size:15px; color:var(--text);">{{ tab.name }}</div>
+                  <div class="font-crimson" style="font-size:14px; color:var(--muted); font-style:italic;">{{ tab.desc }}</div>
+                </div>
+              </div>
+            </td>
+            <td style="text-align:center; padding:6px;">
+              <div style="display:inline-flex; gap:3px;">
+                <button type="button" class="btn-ghost" style="padding:2px 6px; font-size:13px; min-height:24px;" onclick="setRowPreset('{{ tab.id }}', 'full')">Total</button>
+                <button type="button" class="btn-ghost" style="padding:2px 6px; font-size:13px; min-height:24px;" onclick="setRowPreset('{{ tab.id }}', 'read')">Ver</button>
+                <button type="button" class="btn-ghost" style="padding:2px 6px; font-size:13px; min-height:24px; color:var(--muted);" onclick="setRowPreset('{{ tab.id }}', 'none')">Off</button>
+              </div>
+            </td>
+            <td style="text-align:center; padding:6px;">
+              <input type="checkbox" name="can_create_{{ tab.id }}" id="create_{{ tab.id }}" value="1"
+                     {% if p.can_create %}checked{% endif %}
+                     style="width:18px; height:18px; cursor:pointer; accent-color:var(--primary);"
+                     onchange="onCheckChange('{{ tab.id }}')">
+            </td>
+            <td style="text-align:center; padding:6px;">
+              <input type="checkbox" name="can_read_{{ tab.id }}" id="read_{{ tab.id }}" value="1"
+                     {% if p.can_read %}checked{% endif %}
+                     style="width:18px; height:18px; cursor:pointer; accent-color:var(--primary);"
+                     onchange="onCheckChange('{{ tab.id }}')">
+            </td>
+            <td style="text-align:center; padding:6px;">
+              <input type="checkbox" name="can_update_{{ tab.id }}" id="update_{{ tab.id }}" value="1"
+                     {% if p.can_update %}checked{% endif %}
+                     style="width:18px; height:18px; cursor:pointer; accent-color:var(--primary);"
+                     onchange="onCheckChange('{{ tab.id }}')">
+            </td>
+            <td style="text-align:center; padding:6px;">
+              <input type="checkbox" name="can_delete_{{ tab.id }}" id="delete_{{ tab.id }}" value="1"
+                     {% if p.can_delete %}checked{% endif %}
+                     style="width:18px; height:18px; cursor:pointer; accent-color:var(--primary);"
+                     onchange="onCheckChange('{{ tab.id }}')">
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Botões de Ação -->
+  <div style="display:flex; gap:10px; justify-content:flex-start; align-items:center; margin-top:20px;">
+    <button type="submit" class="btn-primary" style="width:auto; min-width:200px; padding:12px 24px;">
+      💾 Salvar Papel e Permissões
+    </button>
+    <a href="{{ url_for('roles') }}" class="btn-ghost" style="width:auto; padding:12px 20px;">
+      Cancelar
+    </a>
+  </div>
+</form>
+
+<script>
+  const tabIds = [{% for tab in system_tabs %}'{{ tab.id }}'{% if not loop.last %},{% endif %}{% endfor %}];
+
+  function setRowPreset(tabId, preset) {
+    const c = document.getElementById('create_' + tabId);
+    const r = document.getElementById('read_' + tabId);
+    const u = document.getElementById('update_' + tabId);
+    const d = document.getElementById('delete_' + tabId);
+
+    if (preset === 'full') {
+      if (c) c.checked = true;
+      if (r) r.checked = true;
+      if (u) u.checked = true;
+      if (d) d.checked = true;
+    } else if (preset === 'read') {
+      if (c) c.checked = (tabId === 'adicionar' || tabId === 'baixa');
+      if (r) r.checked = true;
+      if (u) u.checked = false;
+      if (d) d.checked = false;
+    } else if (preset === 'none') {
+      if (c) c.checked = false;
+      if (r) r.checked = false;
+      if (u) u.checked = false;
+      if (d) d.checked = false;
+    }
+  }
+
+  function setAllPermissions(mode) {
+    tabIds.forEach(id => {
+      if (mode === 'all') {
+        setRowPreset(id, 'full');
+      } else if (mode === 'read_only') {
+        setRowPreset(id, 'read');
+      } else if (mode === 'none') {
+        setRowPreset(id, 'none');
+      }
+    });
+  }
+
+  function onCheckChange(tabId) {
+    const c = document.getElementById('create_' + tabId);
+    const r = document.getElementById('read_' + tabId);
+    const u = document.getElementById('update_' + tabId);
+    const d = document.getElementById('delete_' + tabId);
+
+    // Se marcar create/update/delete em abas com read, automaticamente marca read para que a aba fique visível
+    if ((c && c.checked) || (u && u.checked) || (d && d.checked)) {
+      if (r && !r.checked && tabId !== 'adicionar' && tabId !== 'baixa') {
+        r.checked = true;
+      }
+    }
+  }
+</script>
+
+{% endblock %}
